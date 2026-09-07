@@ -767,6 +767,8 @@ for (const width of WIDTHS) {
 {
 	const config = defaultConfig();
 	config.editor.topMarginRows = 0;
+	config.editor.borderShape = "rectangular";
+	config.editor.minContentRows = 1;
 	const editor = makeLiveEditor(dirtyState(), config, true, 40, keybindingsWith({ "tui.input.tab": ["\t"] }));
 	const completion: AutocompleteItem = { value: "src/中文-file.ts", label: "src/中文-file.ts", description: "wide path" };
 	const provider: AutocompleteProvider = {
@@ -788,16 +790,78 @@ for (const width of WIDTHS) {
 	await Promise.resolve();
 	await Promise.resolve();
 	const autocompleteFrame = editor.render(80).map(stripAnsi);
+	assert.ok(autocompleteFrame[2]?.startsWith("└"), "one-row rectangular frame should end before autocomplete suggestions");
 	const autocompleteLine = autocompleteFrame.find((line) => line.includes("src/中文-file.ts"));
 	assert.ok(autocompleteLine, "autocomplete suggestions with CJK text should render below GlanceEditor frame");
 	assert.ok(autocompleteLine?.startsWith("  "), "autocomplete lines should keep pi-glance indentation outside the framed editor");
-	for (const line of autocompleteFrame) {
-		assert.ok(visibleWidth(line) <= 80, `autocomplete editor frame line should fit width 80: ${line}`);
+	for (const width of [0, 1, 2, 3, 4, 8, 80]) {
+		for (const line of editor.render(width)) {
+			assert.ok(visibleWidth(line) <= width, `autocomplete editor frame line should fit width ${width}: ${stripAnsi(line)}`);
+		}
 	}
 }
 
+for (const [borderShape, topLeft, topRight, bottomLeft, bottomRight] of [
+	["rounded", "╭", "╮", "╰", "╯"],
+	["rectangular", "┌", "┐", "└", "┘"],
+] as const) {
+	const config = defaultConfig();
+	config.editor = { borderShape, minContentRows: 1, topMarginRows: 0 };
+	config.context.progress = true;
+	const state = dirtyState();
+	for (const focused of [true, false]) {
+		for (const stashOccupied of [true, false]) {
+			const editor = new GlanceEditor(
+				{ terminal: { rows: 40 }, requestRender: () => undefined } as unknown as TUI,
+				theme, keybindings, () => state, () => config, undefined,
+				{ getStashOccupied: () => stashOccupied },
+			);
+			editor.focused = focused;
+			for (const text of ["", "x", "!x", "!!x"]) {
+				editor.setText(text);
+				for (const width of [0, 1, 2, 3, 4, 8, 24, 120]) {
+					const frame = editor.render(width).map(stripAnsi);
+					assert.equal(editor.getText(), text, "layout changes should preserve native editor text");
+					if (width === 0) assert.deepEqual(frame, [], "zero-width live editor should render nothing");
+					for (const line of frame) assert.ok(visibleWidth(line) <= width, `${borderShape} live line should fit width ${width}`);
+					if (width >= 8) assert.equal(frame.length, 3, `${borderShape} short live editor should have exactly one body row`);
+					if (width < 4) continue;
+					const top = frame[0] ?? "";
+					const bottom = frame.at(-1) ?? "";
+					assert.ok(top.startsWith(topLeft) && top.endsWith(topRight), `${borderShape} live top corners should survive modes, stash, and resize`);
+					assert.ok(bottom.startsWith(bottomLeft) && bottom.endsWith(bottomRight), `${borderShape} live bottom corners should survive progress rendering`);
+					if (width === 120) {
+						assert.equal(top.includes(text.startsWith("!") ? " · !" : "!stash"), stashOccupied, "live frame should retain the correct stash marker");
+						assert.equal(bottom, previewFrame(state, config, width, [text], focused).at(-1), "live and preview progress borders should match for both shapes");
+					}
+				}
+			}
+		}
+	}
+	const scrolled = makeLiveEditor(state, config, true, 10);
+	scrolled.setText(Array.from({ length: 12 }, (_, index) => `line${index + 1}`).join("\n"));
+	for (let i = 0; i < 20; i++) scrolled.handleInput("\x1b[A");
+	const bottom = stripAnsi(scrolled.render(120).at(-1) ?? "");
+	assert.ok(bottom.startsWith(bottomLeft) && bottom.endsWith(bottomRight), "scroll indicator should preserve configured bottom corners");
+	assert.ok(bottom.includes("↓"), "one-row minimum should retain native scroll indicators for long content");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	const editor = makeLiveEditor(dirtyState(), config, true);
+	editor.setText("draft");
+	assert.equal(editor.render(80).length, 5, "default live editor should preserve three content rows");
+	config.editor.borderShape = "rectangular";
+	config.editor.minContentRows = 1;
+	const updated = editor.render(80).map(stripAnsi);
+	assert.equal(updated.length, 3, "live config changes should shrink the resting editor without recreating it");
+	assert.ok(updated[0]?.startsWith("┌"), "live config changes should update border shape without recreating the editor");
+	assert.equal(editor.getText(), "draft", "live layout updates should retain the draft");
+}
+
 for (const topMarginRows of [0, 1, 2] as const) {
-	for (const minContentRows of [2, 3, 4]) {
+	for (const minContentRows of [1, 2, 3, 4]) {
 		for (const width of WIDTHS) {
 			const config = defaultConfig();
 			config.editor.minContentRows = minContentRows;

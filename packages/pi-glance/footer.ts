@@ -1,6 +1,7 @@
 import type { ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { INPUT_STASH_STATUS_KEY } from "./input-stash.js";
+import { styleExtensionStatus } from "./footer-status-style.js";
 
 export interface StatusOnlyFooterOptions {
 	theme: Theme;
@@ -17,10 +18,10 @@ export function renderExtensionStatusLine(statuses: ReadonlyMap<string, string>,
 	const rest = Array.from(statuses.entries())
 		.filter(([key]) => key !== INPUT_STASH_STATUS_KEY)
 		.sort(([a], [b]) => a.localeCompare(b))
-		.map(([, status]) => sanitizeStatusText(status))
+		.map(([key, status]) => styleExtensionStatus(key, sanitizeStatusText(status), theme))
 		.filter(Boolean);
 	const parts = stash ? [theme.fg("warning", stash), ...rest] : rest;
-	const text = parts.join(" ");
+	const text = parts.join(theme.fg("dim", " · "));
 	return text ? truncateToWidth(text, width, theme.fg("dim", "...")) : undefined;
 }
 

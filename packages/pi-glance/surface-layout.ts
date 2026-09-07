@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatWorkspaceLabel } from "./format.js";
-import type { WorkspaceLabelMode } from "./types.js";
+import type { EditorBorderShape, WorkspaceLabelMode } from "./types.js";
 
 const MIN_SURFACE_WIDTH = 4;
 export const SURFACE_TITLE_MAX_WIDTH = 48;
@@ -12,12 +12,13 @@ export const SURFACE_AUTOCOMPLETE_INDENT = 1 + SURFACE_CONTENT_PADDING_X;
 const SURFACE_STATUS_CHROME_WIDTH = 3;
 
 const SURFACE_BORDER = {
-	topLeft: "╭",
-	topRight: "╮",
-	bottomLeft: "╰",
-	bottomRight: "╯",
 	vertical: "│",
 	horizontal: "─",
+} as const;
+
+const SURFACE_CORNERS = {
+	rounded: { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯" },
+	rectangular: { topLeft: "┌", topRight: "┐", bottomLeft: "└", bottomRight: "┘" },
 } as const;
 
 type SurfaceChunkRole = "border" | "title" | "status" | "content" | "text" | "dim" | "contextProgressFilled" | "contextProgressEmpty";
@@ -93,6 +94,7 @@ interface WorkspaceTitlePlanOptions {
 
 interface SurfaceTopFrameOptions {
 	width: number;
+	borderShape?: EditorBorderShape;
 	left?: SurfaceInlinePlan | SurfaceChunk[];
 	status?: string;
 	statusEllipsis?: string;
@@ -105,6 +107,7 @@ interface SurfaceBottomProgressOptions {
 
 interface SurfaceBottomFrameOptions {
 	width: number;
+	borderShape?: EditorBorderShape;
 	scrollIndicator?: string;
 	leftStatus?: string;
 	status?: string;
@@ -257,13 +260,14 @@ function resolveInlinePlan(left: SurfaceTopFrameOptions["left"]): SurfaceInlineP
 
 export function planSurfaceTopFrame(options: SurfaceTopFrameOptions): SurfaceTopFramePlan {
 	const metrics = surfaceMetrics(options.width);
+	const corners = SURFACE_CORNERS[options.borderShape ?? "rounded"];
 	const left = resolveInlinePlan(options.left);
 	const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, left.width);
 	const status = planSurfaceStatus(options.status, statusBudget, options.statusEllipsis);
 	const statusChromeWidth = status.text ? SURFACE_STATUS_CHROME_WIDTH : 0;
 	const fillerWidth = Math.max(0, metrics.innerWidth - left.width - status.width - statusChromeWidth);
 	const chunks: SurfaceChunk[] = [
-		chunk("border", SURFACE_BORDER.topLeft),
+		chunk("border", corners.topLeft),
 		...left.chunks,
 		chunk("border", repeat(SURFACE_BORDER.horizontal, fillerWidth)),
 	];
@@ -277,7 +281,7 @@ export function planSurfaceTopFrame(options: SurfaceTopFrameOptions): SurfaceTop
 		);
 	}
 
-	chunks.push(chunk("border", SURFACE_BORDER.topRight));
+	chunks.push(chunk("border", corners.topRight));
 	return { ...metrics, chunks, width: surfaceChunksWidth(chunks), leftWidth: left.width, status, fillerWidth };
 }
 
@@ -308,6 +312,7 @@ function bottomProgressChunks(width: number, percent: number | null): SurfaceChu
 
 export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): SurfaceBottomFramePlan {
 	const metrics = surfaceMetrics(options.width);
+	const corners = SURFACE_CORNERS[options.borderShape ?? "rounded"];
 	const indicator = options.scrollIndicator ? truncateSurfaceText(options.scrollIndicator, metrics.innerWidth, "") : "";
 	const indicatorWidth = visibleWidth(indicator);
 	const leftStatus = planSurfaceStatus(options.leftStatus, Math.max(0, metrics.innerWidth - indicatorWidth), options.statusEllipsis);
@@ -323,7 +328,7 @@ export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): Surf
 	const progressWidth = options.contextProgress ? Math.min(fillerWidth, requestedProgressWidth) : 0;
 	const leadingFillerWidth = fillerWidth - progressWidth;
 	const chunks: SurfaceChunk[] = [
-		chunk("border", SURFACE_BORDER.bottomLeft),
+		chunk("border", corners.bottomLeft),
 		chunk("border", indicator),
 	];
 	if (leftStatus.text) {
@@ -346,7 +351,7 @@ export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): Surf
 			chunk("border", SURFACE_BORDER.horizontal),
 		);
 	}
-	chunks.push(chunk("border", SURFACE_BORDER.bottomRight));
+	chunks.push(chunk("border", corners.bottomRight));
 	return { ...metrics, chunks, width: surfaceChunksWidth(chunks), indicator, leftStatus, status, fillerWidth, leadingFillerWidth, progressWidth };
 }
 

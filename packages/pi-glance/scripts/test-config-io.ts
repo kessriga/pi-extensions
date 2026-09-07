@@ -38,7 +38,8 @@ async function main(): Promise<void> {
 		assert.equal(loadConfigSync().enabled, false, "legacy config should migrate and retain mapped fields");
 		assert.match(consumeGlanceConfigNotices().join("\n"), /obsolete/, "migration should report discarded fields");
 		await assert.rejects(readFile(legacyConfigPath, "utf8"), /ENOENT/, "verified migration should delete the legacy file");
-		assert.equal(JSON.parse(await readFile(configPath, "utf8")).version, 15, "migration should write the current schema version");
+		assert.equal(JSON.parse(await readFile(configPath, "utf8")).version, 16, "migration should write the current schema version");
+		assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")).editor, { borderShape: "rounded", minContentRows: 3, topMarginRows: 1 }, "legacy file migration should persist compatible editor defaults");
 		assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")).workingIndicator, { enabled: true }, "schema migration should persist working indicator enabled by default");
 		assert.equal(JSON.parse(await readFile(configPath, "utf8")).git.worktreeSummary, "status", "schema migration should persist the default working tree status mode");
 		await rm(configPath, { force: true });
@@ -47,25 +48,31 @@ async function main(): Promise<void> {
 		assert.deepEqual(loadConfigSync(), defaultConfig(), "invalid JSON should make loadConfigSync fall back to defaults");
 		assert.deepEqual(await loadConfig(), defaultConfig(), "invalid JSON should make async loadConfig fall back to defaults");
 
-		const partialRaw = { enabled: false, icons: "nerd", workingIndicator: { enabled: false, details: true } };
+		const partialRaw = { version: 15, enabled: false, icons: "nerd", editor: { minContentRows: 1 }, workingIndicator: { enabled: false, details: true } };
 		const partialExpected = normalizeConfig(partialRaw);
 		await writeConfigText(configPath, JSON.stringify(partialRaw));
 		assert.deepEqual(configFromText(await readFile(configPath, "utf8")), partialExpected, "configFromText should parse and normalize valid partial config file text");
 		assert.deepEqual(loadConfigSync(), partialExpected, "loadConfigSync should read and normalize valid partial config text");
 		assert.equal((JSON.parse(await readFile(configPath, "utf8")) as { workingIndicator: Record<string, unknown> }).workingIndicator.details, undefined, "migration should drop unknown working indicator sub-fields");
 		assert.deepEqual(await loadConfig(), partialExpected, "async loadConfig should read and normalize valid partial config text");
+		assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")).editor, { borderShape: "rounded", minContentRows: 1, topMarginRows: 1 }, "v15 file migration should add rounded corners and preserve one row");
 
 		const nextConfig = normalizeConfig({
 			enabled: false,
 			theme: { light: "one-light", dark: "tokyo-night" },
 			icons: "nerd",
+			editor: { borderShape: "rectangular", minContentRows: 1, topMarginRows: 0 },
 			display: { adaptive: false, workspaceLabel: "path", showProvider: "always" },
 			git: { shaMode: "always", pollIntervalMs: 30000 },
 			tokens: { display: "total", cache: "show" },
 		});
+		await writeConfigText(configPath, JSON.stringify({ ...nextConfig, version: 15 }));
+		assert.deepEqual(loadConfigSync(), nextConfig, "file migration should preserve rectangular corners and one row");
+		assert.equal(consumeGlanceConfigNotices().join("\n").includes("editor.borderShape"), false, "border shape should be a known field, not reported as dropped");
 		await saveConfig(nextConfig);
 		const savedText = await readFile(configPath, "utf8");
 		assert.equal(savedText, configToText(nextConfig), "saveConfig should write configToText output exactly");
+		assert.deepEqual(JSON.parse(savedText).editor, { borderShape: "rectangular", minContentRows: 1, topMarginRows: 0 }, "saveConfig should persist rectangular corners and one row");
 		assert.deepEqual(JSON.parse(savedText).theme, { light: "one-light", dark: "tokyo-night" }, "saveConfig should serialize the current theme pair shape");
 		assert.equal("adaptive" in JSON.parse(savedText).display, false, "saveConfig should drop the legacy adaptive width setting because fitting is always on");
 		assert.deepEqual(configFromText(savedText), normalizeConfig(nextConfig), "configFromText should round-trip saveConfig output");

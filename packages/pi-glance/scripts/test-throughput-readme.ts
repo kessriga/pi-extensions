@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
 
-const readme = await readFile("README.md", "utf8");
+const readme = (await readFile("README.md", "utf8")).replace(/\s+/g, " ");
 
 assert.ok(readme.includes("Reply speed"), "README should document the user-facing Reply speed segment");
 assert.ok(readme.includes("enabled by default"), "README should state Reply speed is enabled by default");
