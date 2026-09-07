@@ -65,6 +65,10 @@ Cursor Ask is Node-only and manages streaming and unary RPCs directly with `node
 - **Session liveness:** HTTP/2 PING runs every 20s. Completed streams leave the session reusable; idle sessions are unreferenced and active streams are referenced when the runtime supports it.
 - **Idle safety net:** Connect timeout defaults to 30s (handshake only). **Activity idle is disabled by default** so long agent turns are not killed. Parent heartbeats every 15s reset the activity timer when it is enabled via `PI_CURSOR_H2_IDLE_TIMEOUT_MS`.
 
+## Pi-owned tool boundary
+
+Each Run sends `x-cursor-agent-allowed-tools`: the MCP family when Pi supplied effective tools, or an explicit empty value for tool-free requests. The policy follows the request, including idle HTTP/2 session reuse, rather than the connection's first Run. This avoids offering Cursor-native tools that this adapter cannot execute and reduces their unrelated prompt overhead. Existing client-side native-exec rejection remains a separate safety boundary; the header does not delegate tool execution to Cursor. Unary discovery requests do not receive this policy.
+
 ## Stream idle watchdog
 
 `writeNativeStream` arms a silence idle watchdog via `PI_CURSOR_STREAM_IDLE_TIMEOUT_MS`. **Default is `180000` (3 min)**. Set to `0` to disable. The watchdog resets on:
@@ -88,7 +92,7 @@ Pi uses usage buckets for cost but `usage.totalTokens` for its context meter and
 Context and billing have separate lifetimes:
 
 - Positive checkpoint observations replace previous observations, including genuine decreases after upstream summarization. Pending-tool `0/0` placeholders do not erase known context. Missing snapshots never fall back to the cumulative bill.
-- Every local reply, including a tool pause, can carry a positive local context estimate without inventing a billing charge. Estimates include the current Pi input and generated content; a validated same-session/model/prompt/tools/history anchor can retain Cursor's hidden prompt overhead. A full-history rebuild invalidates compressed checkpoint anchors. Fresh snapshots remain authoritative; real over-window values are not capped, and Pi's automatic compaction is not disabled.
+- Every local reply, including a tool pause, can carry a positive local context estimate without inventing a billing charge. Estimates include the current Pi input and generated content; a validated same-session/model/prompt/tools/history anchor can retain Cursor's hidden prompt overhead. Transport and idle recovery preserve the checkpoint actually used to continue, even before the first Pi reply exists, without counting its already-included output again. An inherited observation remains an estimate until a fresh checkpoint arrives; it cannot veto compaction as fresh evidence. A full-history rebuild invalidates compressed checkpoint anchors. Fresh snapshots remain authoritative; real over-window values are not capped, and Pi's automatic compaction is not disabled.
 - The receipt belongs to the upstream Run, not each local tool response. A receipt is consumed once, preserving its original rates. A receipt arriving after a writer closes can be carried to the next same-model reply in that in-memory conversation, even if the old Run already ended. Previously emitted messages are not mutated.
 - `tokenDelta` is progress data, not a reliable billed-output counter. When the final receipt is absent, no token classification or cost is invented from it. A partial receipt prices only known buckets; cache-inclusive input is not priced as uncached when its cache split is incomplete.
 
