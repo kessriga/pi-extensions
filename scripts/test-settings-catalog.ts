@@ -4,6 +4,7 @@ import {
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
 	CONTEXT_TEXT_MODE_VALUES,
+	EDITOR_BORDER_SHAPE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	GIT_SHA_MODE_VALUES,
 	ICON_MODE_VALUES,
@@ -226,6 +227,13 @@ const generalRows = assertRows(config, "general", [
 		label: "Icons",
 		value: "plain",
 		hint: "Plain text or Nerd Font icons with fallback.",
+		kind: "cycle",
+	},
+	{
+		id: "general.borderShape",
+		label: "Border shape",
+		value: "rounded",
+		hint: "Use rounded or rectangular editor corners.",
 		kind: "cycle",
 	},
 	{
@@ -579,6 +587,28 @@ assertCycleUsesValues(
 		next.display.workspaceLabel = workspaceLabel;
 	}),
 	(after) => after.display.workspaceLabel,
+);
+assertCycleUsesValues(
+	config,
+	EDITOR_BORDER_SHAPE_VALUES,
+	"general",
+	"general.borderShape",
+	"General Border shape",
+	(base, borderShape) => withTestConfig(base, (next) => {
+		next.editor.borderShape = borderShape;
+	}),
+	(after) => after.editor.borderShape,
+);
+assertCycleUsesValues<number>(
+	config,
+	[1, 2, 3, 4],
+	"general",
+	"general.minInputRows",
+	"General Min input rows",
+	(base, minContentRows) => withTestConfig(base, (next) => {
+		next.editor.minContentRows = minContentRows;
+	}),
+	(after) => after.editor.minContentRows,
 );
 assertCycleUsesValues(
 	config,

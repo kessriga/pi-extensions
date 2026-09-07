@@ -70,7 +70,7 @@ function stripControlsPreservingSpaces(text: string): string {
 }
 
 function minContentRows(config: GlanceConfig): number {
-	return Math.max(2, Math.min(4, config.editor.minContentRows));
+	return Math.max(1, Math.min(4, config.editor.minContentRows));
 }
 
 function shouldDimChrome(input: InputSurfaceFrameInput): boolean {
@@ -101,9 +101,9 @@ function interactiveTopLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<Inp
 	);
 	if (!scrollIndicator && !modeLabel && !stash) return undefined;
 
-	const prefix = modeLabel ? `─ ${modeLabel}${stash ? " · " : " "}` : stash ? "─ " : "";
-	const suffix = scrollIndicator ?? (prefix || stash ? "─" : "");
 	const budget = Math.max(1, metrics.innerWidth);
+	const prefix = truncateToWidth(modeLabel ? `─ ${modeLabel}${stash ? " · " : " "}` : stash ? "─ " : "", budget, "");
+	const suffix = scrollIndicator ?? (prefix || stash ? "─" : "");
 	const mark = stash ? truncateToWidth(stash, Math.max(0, budget - visibleWidth(prefix) - visibleWidth(suffix)), "") : "";
 	const remainder = truncateToWidth(suffix, Math.max(0, budget - visibleWidth(prefix) - visibleWidth(mark)), "");
 	const chunks = [
@@ -140,13 +140,13 @@ function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfac
 	if (interactiveLeft) {
 		const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, interactiveLeft.width);
 		const status = resolveStatus(input, statusBudget);
-		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left: interactiveLeft, status });
+		plan = planSurfaceTopFrame({ width: metrics.safeWidth, borderShape: input.config.editor.borderShape, left: interactiveLeft, status });
 	} else {
 		const statusBudget = planSurfaceStatusFirstBudget(metrics.innerWidth);
 		const status = resolveStatus(input, statusBudget);
 		const titleMaxWidth = planSurfaceRemainingLeftWidth(metrics.innerWidth, status);
 		const left = workspaceTitlePlan(input, metrics, titleMaxWidth);
-		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left, status });
+		plan = planSurfaceTopFrame({ width: metrics.safeWidth, borderShape: input.config.editor.borderShape, left, status });
 	}
 
 	const rendered = renderSurfaceChunks(plan.chunks, {
@@ -253,7 +253,7 @@ function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string
 					: input.styles.segments.context.fg;
 	const progressEmpty = dimmed || risk === "unknown" ? input.styles.dim : border;
 	return renderSurfaceChunks(
-		planSurfaceBottomFrame({ width, scrollIndicator, leftStatus, status, contextProgress }).chunks,
+		planSurfaceBottomFrame({ width, borderShape: input.config.editor.borderShape, scrollIndicator, leftStatus, status, contextProgress }).chunks,
 		{
 			border,
 			status: identity,
@@ -274,6 +274,7 @@ export function measureInputSurfaceFrame(width: number): InputSurfaceFrameMetric
 }
 
 export function renderInputSurfaceFrame(input: InputSurfaceFrameInput): string[] {
+	if (input.width <= 0) return [];
 	const metrics = measureInputSurfaceFrame(input.width);
 	const sourceLines = bodyLines(input.body);
 	const rows = Math.max(minContentRows(input.config), sourceLines.length);
@@ -287,5 +288,5 @@ export function renderInputSurfaceFrame(input: InputSurfaceFrameInput): string[]
 	}
 
 	lines.push(renderBottomFrame(input, metrics.safeWidth));
-	return lines;
+	return input.width < metrics.safeWidth ? lines.map((line) => truncateToWidth(line, input.width, "")) : lines;
 }

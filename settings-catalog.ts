@@ -1,6 +1,7 @@
 import { cloneConfig, toggleSegment } from "./config.js";
 import {
 	COLOR_SOURCE_VALUES,
+	EDITOR_BORDER_SHAPE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	ICON_MODE_VALUES,
 	WORKSPACE_LABEL_MODE_VALUES,
@@ -44,7 +45,7 @@ export interface ThemeBrowserCatalogItem {
 	detailDescription: string;
 }
 
-const MIN_CONTENT_ROWS = [2, 3, 4] as const;
+const MIN_CONTENT_ROWS = [1, 2, 3, 4] as const;
 
 function nextIn<T extends string>(current: T, values: readonly T[]): T {
 	const index = values.indexOf(current);
@@ -209,6 +210,11 @@ export function getSettingsRows(config: GlanceConfig, categoryId: SettingsCatego
 				cycleRow("general.icons", "Icons", config.icons, "Plain text or Nerd Font icons with fallback.", (draft) =>
 					withConfig(draft, (next) => {
 						next.icons = nextIn(next.icons, ICON_MODE_VALUES);
+					}),
+				),
+				cycleRow("general.borderShape", "Border shape", config.editor.borderShape, "Use rounded or rectangular editor corners.", (draft) =>
+					withConfig(draft, (next) => {
+						next.editor.borderShape = nextIn(next.editor.borderShape, EDITOR_BORDER_SHAPE_VALUES);
 					}),
 				),
 				cycleRow("general.minInputRows", "Min input rows", `${config.editor.minContentRows}`, "Set the resting editor height.", (draft) =>

@@ -16,7 +16,7 @@ const INPUT_STASH_MODULE = "input-stash.ts";
 const INPUT_STASH_CHROME_MODULE = "input-stash-chrome.ts";
 const INPUT_STASH_STORE_MODULE = "input-stash-store.ts";
 const INPUT_STASH_RUNTIME_MODULE = "input-stash-runtime.ts";
-const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", WORKTREE_SUMMARY_MODULE, INPUT_SURFACE_FRAME_MODULE, INPUT_STASH_CHROME_MODULE, FOOTER_MODULE, STATUS_LINE_MODULE]);
+const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", WORKTREE_SUMMARY_MODULE, INPUT_SURFACE_FRAME_MODULE, INPUT_STASH_CHROME_MODULE, FOOTER_MODULE, "footer-status-style.ts", STATUS_LINE_MODULE]);
 const INDEX_MODULE = "index.ts";
 const PURE_CONFIG_OPTIONS_MODULE = "config-options.ts";
 const SEGMENT_DISPLAY_PRIMITIVES_MODULE = "segment-display-primitives.ts";
@@ -856,7 +856,7 @@ function assertFooterSeams(files: SourceFile[]): void {
 	const footer = files.find((candidate) => basename(candidate.path) === FOOTER_MODULE);
 	assert.ok(footer, "footer.ts status-preserving footer should exist");
 
-	const allowedSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "./format.js", "./input-stash.js", "./types.js"]);
+	const allowedSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "./format.js", "./input-stash.js", "./footer-status-style.js", "./types.js"]);
 	const importPattern = /(?:import|export)\s+(type\s+)?(?:[^"'`]*?\s+from\s+)?["']([^"']+)["']/g;
 	for (const match of footer.text.matchAll(importPattern)) {
 		const isTypeOnly = match[1] === "type ";

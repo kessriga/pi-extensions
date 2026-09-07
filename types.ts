@@ -21,6 +21,7 @@ export type TokensDisplayMode = "input-output" | "total";
 export type TokensCacheMode = "auto" | "show" | "hide";
 export type ModelThinkingMode = "auto" | "always" | "never";
 export type WorkspaceLabelMode = "name" | "smart" | "path";
+export type EditorBorderShape = "rounded" | "rectangular";
 export type EditorTopMarginRows = 0 | 1 | 2;
 export type ThroughputPrecision = "auto" | 0 | 1;
 
@@ -35,6 +36,7 @@ interface DisplayConfig {
 }
 
 interface EditorConfig {
+	borderShape: EditorBorderShape;
 	minContentRows: number;
 	topMarginRows: EditorTopMarginRows;
 }
@@ -78,7 +80,7 @@ interface BottomDetailsConfig {
 }
 
 export interface GlanceConfig {
-	version: 15;
+	version: 16;
 	enabled: boolean;
 	workingIndicator: {
 		enabled: boolean;

@@ -5,6 +5,7 @@ import type {
 	ContextProgressWidth,
 	ColorSource,
 	GitShaMode,
+	EditorBorderShape,
 	EditorTopMarginRows,
 	GlanceConfig,
 	IconMode,
@@ -20,6 +21,7 @@ export const COLOR_SOURCE_VALUES: ReadonlyArray<ColorSource> = ["pi", "glance"];
 export const ICON_MODE_VALUES: ReadonlyArray<IconMode> = ["plain", "nerd"];
 export const PROVIDER_DISPLAY_MODE_VALUES: ReadonlyArray<GlanceConfig["display"]["showProvider"]> = ["auto", "always", "never"];
 export const WORKSPACE_LABEL_MODE_VALUES: ReadonlyArray<WorkspaceLabelMode> = ["name", "smart", "path"];
+export const EDITOR_BORDER_SHAPE_VALUES: ReadonlyArray<EditorBorderShape> = ["rounded", "rectangular"];
 export const EDITOR_TOP_MARGIN_ROW_VALUES: ReadonlyArray<EditorTopMarginRows> = [0, 1, 2];
 export const GIT_SHA_MODE_VALUES: ReadonlyArray<GitShaMode> = ["off", "detached", "always"];
 export const WORKTREE_SUMMARY_MODE_VALUES: ReadonlyArray<WorktreeSummaryMode> = ["status", "border-right"];
