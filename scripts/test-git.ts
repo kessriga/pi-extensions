@@ -454,7 +454,8 @@ async function assertBaseRefFetchCannotClaimTerminal(): Promise<void> {
 	const dir = await initRepository("pi-glance-fetch-");
 	const sshScript = join(dir, "fake-ssh.sh");
 	const marker = join(dir, "ssh-process.txt");
-	const parentSession = (await runCommandOutput("ps", ["-o", "sid=", "-p", String(process.pid)])).trim();
+	const parentGroup = (await runCommandOutput("ps", ["-o", "pgid=", "-p", String(process.pid)])).trim();
+	assert.match(parentGroup, /^[1-9]\d*$/, "parent process group should be available");
 	const previousEnv = {
 		GIT_TERMINAL_PROMPT: process.env.GIT_TERMINAL_PROMPT,
 		SSH_ASKPASS_REQUIRE: process.env.SSH_ASKPASS_REQUIRE,
@@ -463,7 +464,7 @@ async function assertBaseRefFetchCannotClaimTerminal(): Promise<void> {
 	try {
 		await writeFile(
 			sshScript,
-			`#!/bin/sh\ntty_state=no-tty\nif (: </dev/tty) 2>/dev/null; then tty_state=has-tty; fi\nsid=$(ps -o sid= -p $$ | tr -d ' ')\nprintf '%s\\t%s\\t%s\\t%s\\n' "$GIT_TERMINAL_PROMPT" "$SSH_ASKPASS_REQUIRE" "$GCM_INTERACTIVE" "$tty_state:$sid" > '${marker}'\nexit 255\n`,
+			`#!/bin/sh\ntty_state=no-tty\nif (: </dev/tty) 2>/dev/null; then tty_state=has-tty; fi\npgid=$(ps -o pgid= -p $$ | tr -d ' ')\nprintf '%s\\t%s\\t%s\\t%s\\n' "$GIT_TERMINAL_PROMPT" "$SSH_ASKPASS_REQUIRE" "$GCM_INTERACTIVE" "$tty_state:$pgid" > '${marker}'\nexit 255\n`,
 			{ encoding: "utf8", mode: 0o700 },
 		);
 		await runGit(dir, ["remote", "add", "origin", "git@example.invalid:repo.git"]);
@@ -477,9 +478,10 @@ async function assertBaseRefFetchCannotClaimTerminal(): Promise<void> {
 		assert.equal(gitPrompt, "0", "network fetch should disable Git terminal credential prompts");
 		assert.equal(askpass, "never", "network fetch should disable SSH askpass prompts");
 		assert.equal(credentialManager, "Never", "network fetch should disable Git Credential Manager prompts");
-		const [ttyState, childSession] = processState!.split(":");
+		const [ttyState, childGroup] = processState!.split(":");
 		assert.equal(ttyState, "no-tty", "network fetch should not expose Pi's controlling terminal to SSH");
-		assert.notEqual(childSession, parentSession, "network fetch should run in a separate process session");
+		assert.match(childGroup!, /^[1-9]\d*$/, "fetch process group should be available");
+		assert.notEqual(childGroup, parentGroup, "network fetch should run in a separate process group");
 	} finally {
 		for (const [key, value] of Object.entries(previousEnv)) {
 			if (value === undefined) delete process.env[key];
