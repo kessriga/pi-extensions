@@ -16,7 +16,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
         "language": {
           "enum": ["auto", "zh-CN", "en"],
           "default": "auto"
@@ -38,16 +37,22 @@
           "default": "individual",
           "description": "Controls whether tools use their individual renderers or one bounded all-tool Tools summary per user turn. Aggregate stays collapsed as a Tools ledger. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows; after the turn settles, assistant notes hide and a receipt shows duration, tokens, cache, and completion time. Ctrl+O restores the original timeline of notes plus one target/status summary per call."
         },
-        "style": {
-          "enum": ["compact", "claude"],
-          "default": "compact"
-        },
         "bashCommandPreviewRows": {
           "type": "integer",
           "minimum": 1,
           "maximum": 8,
           "default": 1,
           "description": "Maximum rendered terminal rows used by collapsed Bash command arguments. Ctrl+O shows the complete command."
+        },
+        "expandedTimeline": {
+          "enum": ["flat", "turns"],
+          "default": "flat",
+          "description": "Controls the Ctrl+O aggregate timeline. flat keeps one target/status row per call. turns groups those rows by agent turn with a ↻ 1/N header and indented calls. Collapsed Tools is unchanged. Changing this does not reload the session."
+        },
+        "showContextGrowth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Shows ctx +/- tokens in the aggregate run receipt and agent-turn headers in the turns timeline. flat still shows the run total, without per-turn changes. Context changes are attributed to the originating agent turn after the next compatible request usage is available; terminal or unconfirmed changes are approximate (≈), and boundary gaps are never exact growth. Separate from total token consumption. Individual layout retains but does not use this setting. Changing this does not reload the session."
         }
       }
     },
@@ -105,16 +110,6 @@
         }
       }
     },
-    "transcript": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "userMessageStyle": {
-          "enum": ["boxed", "default"],
-          "default": "boxed"
-        }
-      }
-    },
     "tools": {
       "type": "object",
       "additionalProperties": false,
@@ -122,8 +117,8 @@
         "passthrough": {
           "type": "array",
           "uniqueItems": true,
-          "default": ["Agent"],
-          "description": "Tool names whose original transcript renderer remains active in aggregate layout. Agent is always included by default. Built-in names also opt out of this extension's individual renderer override.",
+          "default": [],
+          "description": "Explicit exceptions whose original transcript renderer remains active in aggregate layout. Empty by default: Agent and consult are aggregated too. Built-in names also opt out of this extension's individual renderer override.",
           "items": {
             "type": "string",
             "minLength": 1,

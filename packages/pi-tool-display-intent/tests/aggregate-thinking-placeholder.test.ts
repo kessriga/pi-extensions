@@ -6,7 +6,7 @@ import {
 	UserMessageComponent,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	AggregateProjection,
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
@@ -48,6 +48,11 @@ function createComponent(message: unknown, hideThinkingBlock: boolean): Assistan
 
 function render(message: unknown, hideThinkingBlock: boolean): string[] {
 	return createComponent(message, hideThinkingBlock).render(100);
+}
+
+function passthroughProjection(...names: string[]) {
+	const passthrough = new Set(names);
+	return new AggregateProjection((toolName) => passthrough.has(toolName));
 }
 
 test("aggregate strips collapsed Thinking placeholders but keeps final assistant text", () => {
@@ -98,6 +103,96 @@ test("aggregate strips collapsed Thinking placeholders but keeps final assistant
 	);
 });
 
+test("passthrough-only turns keep pre-tool narration as ordinary assistant text", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-passthrough-narration");
+		const message = assistant([
+			{ type: "text", text: "Prod has no Metrics on purpose during rollout" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		], { id: "assistant-consult" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), false);
+		const rendered = component.render(100);
+		assert.equal(rendered[0], "");
+		assert.match(rendered.join("\n"), /Prod has no Metrics on purpose/);
+		assert.doesNotMatch(rendered.join("\n"), /[›│└]/);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.equal(expanded[0], "");
+		assert.match(expanded.join("\n"), /Prod has no Metrics on purpose/);
+		assert.doesNotMatch(expanded.join("\n"), /[›│└]/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("passthrough-only narration stays visible even after the same user turn already painted a Run ledger", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-later-consult-narration");
+		projection.ingestAssistantMessage(assistant([
+			{ type: "text", text: "Locate both design and implementation entries first" },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-read" }));
+		const message = assistant([
+			{ type: "text", text: "I'll ask the advisor whether session files close the race" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		], { id: "assistant-consult" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), false);
+		const rendered = component.render(100);
+		assert.match(rendered.join("\n"), /I'll ask the advisor whether session files close the race/);
+		assert.doesNotMatch(rendered.join("\n"), /[›│└]/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("a turn with aggregate tools still folds narration into the Run frame", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-mixed-narration");
+		const message = assistant([
+			{ type: "text", text: "Locate both design and implementation entries first" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-mixed" });
+		projection.ingestAssistantMessage(message);
+		assert.equal(
+			projection.getView("read-1")?.latestNarration,
+			"Locate both design and implementation entries first",
+		);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), true);
+		assert.deepEqual(component.render(100), []);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.match(expanded.join("\n"), /│.*›.*Locate both design and implementation entries first/);
+		assert.doesNotMatch(expanded.join("\n"), /│.*Run/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
 test("aggregate hides interim narration until Ctrl+O restores it in place", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>
@@ -120,11 +215,153 @@ test("aggregate hides interim narration until Ctrl+O restores it in place", () =
 		expandable.setExpanded(true);
 		const expanded = component.render(100);
 		assert.match(expanded.join("\n"), /│.*›.*先定位两边的设计与实现入口/);
-		assert.doesNotMatch(expanded.join("\n"), /│.*Tools/);
+		assert.doesNotMatch(expanded.join("\n"), /│.*Run/);
 		assert.doesNotMatch(expanded.join("\n"), /Thinking\.\.\./);
 
 		expandable.setExpanded(false);
 		assert.deepEqual(component.render(100), []);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("early unframed narration keeps a blank under the user after later Run appear", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-early-narration");
+		const early = assistant([
+			{ type: "text", text: "Prod has no Metrics on purpose" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		], { id: "assistant-early" });
+		projection.ingestAssistantMessage(early);
+		projection.ingestAssistantMessage(assistant([
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-tools" }));
+		const rendered = createComponent(early, true).render(100);
+		assert.equal(rendered[0], "");
+		assert.match(rendered.join("\n"), /Prod has no Metrics on purpose/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("expanded narration wraps inside its frame without clipping text or marking padded rows as truncated", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("narration-width");
+		const text = "先检查账本中的模型回复是否完整显示，然后验证换行不会丢掉末尾文字。\nNext line stays next to the previous line, without an artificial gap.";
+		const message = assistant([
+			{ type: "text", text },
+			{ type: "toolCall", id: "narration-width-tool", name: "read", arguments: { path: "a.ts" } },
+		], { id: "narration-width-message" });
+		projection.ingestAssistantMessage(message);
+		for (const outputPad of [0, 1]) {
+			const component = new AssistantMessageComponent(message as never, true, undefined, "Thinking...", outputPad, []);
+			(component as AssistantMessageComponent & { setExpanded(value: boolean): void }).setExpanded(true);
+			for (const width of [36, 80]) {
+				const rows = component.render(width);
+				assert.ok(rows.every((row) => visibleWidth(row) <= width));
+				const body = rows.map((row) => row.replace(/\x1b\[[0-9;]*m/g, ""))
+					.filter((row) => /^  [│└] /.test(row))
+					.map((row) => row.replace(/^  [│└] (?:› )?/, "").trim());
+				assert.ok(body.length > 1);
+				assert.doesNotMatch(body.join("\n"), /…/);
+				assert.ok(body.every((row) => row.length > 0), "soft wrapping must not insert blank rows");
+				assert.equal(body.join("").replace(/\s/g, ""), text.replace(/\s/g, ""));
+			}
+		}
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("narration keeps its original first-line inset and aligns adjacent continuation lines without right padding", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("narration-inset");
+		const message = assistant([
+			{ type: "text", text: "First line\nSecond line\nThird line" },
+			{ type: "toolCall", id: "narration-inset-tool", name: "read", arguments: { path: "a.ts" } },
+		], { id: "narration-inset-message" });
+		projection.ingestAssistantMessage(message);
+		for (const outputPad of [0, 1, 3]) {
+			const component = new AssistantMessageComponent(message as never, true, undefined, "Thinking...", outputPad, []);
+			(component as AssistantMessageComponent & { setExpanded(value: boolean): void }).setExpanded(true);
+			const rows = component.render(80).map((row) => row.replace(/\x1b\[[0-9;]*m/g, ""));
+			const first = rows.findIndex((row) => row.includes("First line"));
+			const second = rows.findIndex((row) => row.includes("Second line"));
+			const third = rows.findIndex((row) => row.includes("Third line"));
+			assert.equal(rows[first].indexOf("First"), 6 + outputPad, "keep the established first-line inset");
+			assert.equal(second, first + 1);
+			assert.equal(third, second + 1);
+			assert.equal(rows[second].indexOf("Second"), rows[first].indexOf("First"));
+			assert.equal(rows[third].indexOf("Third"), rows[first].indexOf("First"));
+			for (const row of rows.slice(first, third + 1)) assert.ok(row.endsWith("line"), "do not fill a short row to the terminal edge");
+		}
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("framed narration retains paragraph gaps and intentional blank code lines", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("narration-code-spacing");
+		const message = assistant([
+			{ type: "text", text: "Intro\n\n```text\nfirst\n\n\nlast\n```\n\nOutro" },
+			{ type: "toolCall", id: "narration-code-tool", name: "read", arguments: { path: "a.ts" } },
+		], { id: "narration-code-message" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		(component as AssistantMessageComponent & { setExpanded(value: boolean): void }).setExpanded(true);
+		const body = component.render(80).map((row) => row.replace(/\x1b\[[0-9;]*m/g, ""))
+			.filter((row) => /^  [│└] /.test(row))
+			.map((row) => row.replace(/^  [│└] (?:› | {2})?/, "").trimEnd()).join("\n");
+		assert.match(body, /Intro\n\n```text/);
+		assert.match(body, /first\n\n\n  last/);
+		assert.match(body, /```\n\nOutro$/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("expanded narration after a previous tool turn keeps a framed blank", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-framed-gap");
+		projection.ingestAssistantMessage(assistant([
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-first" }));
+		const later = assistant([
+			{ type: "text", text: "接着补文档、changeset，然后跑测试。" },
+			{ type: "toolCall", id: "read-2", name: "read", arguments: { path: "b.ts" } },
+		], { id: "assistant-later" });
+		projection.ingestAssistantMessage(later);
+		const component = createComponent(later, true);
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100).join("\n");
+		assert.match(expanded, /│[^\n]*\n[^\n]*›[^\n]*接着补文档/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();
@@ -140,19 +377,19 @@ test("a direct final answer keeps a blank row under the user prompt", () => {
 	try {
 		projection.startUserGroup("user-direct-final");
 		const message = assistant([
-			{ type: "text", text: "就是：换地方画 Tools，上面照样空一行。" },
+			{ type: "text", text: "就是：换地方画 Run，上面照样空一行。" },
 		], { id: "assistant-direct-final", stopReason: "stop" });
 		projection.ingestAssistantMessage(message);
 		const rendered = createComponent(message, true).render(100);
 		assert.equal(rendered[0], "");
-		assert.match(rendered.join("\n"), /换地方画 Tools/);
+		assert.match(rendered.join("\n"), /换地方画 Run/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();
 	}
 });
 
-test("a final answer after Tools does not stack a second blank on the ledger", () => {
+test("a final answer after Run does not stack a second blank on the ledger", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>
 		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
@@ -230,7 +467,7 @@ test("aggregate thinking patch preserves a later outer renderer wrapper", () => 
 	}
 });
 
-test("a stop message keeps only the final text outside the Tools frame", () => {
+test("a stop message keeps only the final text outside the Run frame", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>
 		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));

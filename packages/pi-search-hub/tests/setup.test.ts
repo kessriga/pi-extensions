@@ -99,6 +99,8 @@ describe("Search Hub setup and reader configuration", () => {
 		mkdirSync(cwd, { recursive: true });
 		previousHome = process.env.HOME;
 		process.env.HOME = home;
+		vi.stubEnv("PI_CODING_AGENT_DIR", join(home, ".pi", "agent"));
+		vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Unexpected network request in setup test"); }));
 		for (const name of new Set([...Object.values(FALLBACK_ENV_MAP), "JINA_API_KEY", "SERPER_API_KEY"])) {
 			previousEnv.set(name, process.env[name]);
 			delete process.env[name];
@@ -113,6 +115,8 @@ describe("Search Hub setup and reader configuration", () => {
 			else process.env[name] = value;
 		}
 		previousEnv.clear();
+		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
 		rmSync(home, { recursive: true, force: true });
 	});
 
@@ -426,7 +430,7 @@ describe("Search Hub setup and reader configuration", () => {
 		try {
 			const result = await webRead.execute(
 				"read-1",
-				{ url: "https://example.com", displaySummary: "Read example" },
+				{ url: "https://example.com" },
 				undefined,
 				onUpdate,
 				harness.ctx,
@@ -439,7 +443,7 @@ describe("Search Hub setup and reader configuration", () => {
 			fetchSpy.mockClear();
 			await expect(webRead.execute(
 				"read-2",
-				{ url: "https://example.com", reader: "exa", displaySummary: "Read with Exa" },
+				{ url: "https://example.com", reader: "exa" },
 				undefined,
 				onUpdate,
 				harness.ctx,
@@ -456,7 +460,7 @@ describe("Search Hub setup and reader configuration", () => {
 
 		await expect(harness.tools.get("web_search")!.execute(
 			"search-codex",
-			{ query: "test", backend: "openai-codex", displaySummary: "Search with Codex" },
+			{ query: "test", backend: "openai-codex" },
 			undefined,
 			onUpdate,
 			harness.ctx,
@@ -472,7 +476,7 @@ describe("Search Hub setup and reader configuration", () => {
 
 		await expect(harness.tools.get("web_search")!.execute(
 			"search-1",
-			{ query: "test", backend: "serper", displaySummary: "Search test" },
+			{ query: "test", backend: "serper" },
 			undefined,
 			onUpdate,
 			harness.ctx,

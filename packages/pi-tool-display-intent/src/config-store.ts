@@ -24,7 +24,7 @@ import {
 	DIFF_VIEW_MODES,
 	RESULT_DISPLAY_MODES,
 	TOOL_CALL_LAYOUTS,
-	TOOL_CALL_STYLES,
+	EXPANDED_TIMELINES,
 	TOOL_DISPLAY_CONFIG_SCHEMA_URL,
 	TOOL_DISPLAY_CONFIG_VERSION,
 	TOOL_INTENT_LANGUAGES,
@@ -103,10 +103,10 @@ function toToolCallLayout(value: unknown): ToolDisplayConfig["toolCallLayout"] {
 		: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallLayout;
 }
 
-function toToolCallStyle(value: unknown): ToolDisplayConfig["toolCallStyle"] {
-	return TOOL_CALL_STYLES.includes(value as ToolDisplayConfig["toolCallStyle"])
-		? (value as ToolDisplayConfig["toolCallStyle"])
-		: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle;
+function toExpandedTimeline(value: unknown): ToolDisplayConfig["expandedTimeline"] {
+	return EXPANDED_TIMELINES.includes(value as ToolDisplayConfig["expandedTimeline"])
+		? (value as ToolDisplayConfig["expandedTimeline"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.expandedTimeline;
 }
 
 function toDiffViewMode(value: unknown): ToolDisplayConfig["diffViewMode"] {
@@ -138,7 +138,6 @@ function normalizeToolIntentConfig(rawConfig: unknown): ToolDisplayConfig["toolI
 		: defaults.language;
 
 	return {
-		enabled: toBoolean(source.enabled, defaults.enabled),
 		language,
 		maxLength: clampNumber(source.maxLength, 16, 256, defaults.maxLength),
 	};
@@ -329,7 +328,9 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
 		toolIntent: normalizeToolIntentConfig(rawToolIntent),
 		toolCallLayout: toToolCallLayout(source.toolCallLayout),
-		toolCallStyle: toToolCallStyle(source.toolCallStyle),
+		expandedTimeline: toExpandedTimeline(source.expandedTimeline),
+		showContextGrowth: toBoolean(source.showContextGrowth, DEFAULT_TOOL_DISPLAY_CONFIG.showContextGrowth),
+		toolCallStyle: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
 		bashCommandPreviewRows: clampNumber(
 			source.bashCommandPreviewRows,
 			1,
@@ -338,10 +339,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		resultMode: resultResolution.mode,
 		...resultConfig,
-		enableNativeUserMessageBox: toBoolean(
-			source.enableNativeUserMessageBox,
-			DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
-		),
+		enableNativeUserMessageBox: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
 		previewRows: clampNumber(
 			source.previewRows ?? source.previewLines,
 			2,
@@ -455,16 +453,16 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	}
 
 	const intent = getV2Section(source, "intent", errors);
-	validateKnownKeys(intent, ["enabled", "language", "maxLength"], "intent.", errors);
-	validateOptionalBoolean(intent, "enabled", "intent.", errors);
+	validateKnownKeys(intent, ["language", "maxLength"], "intent.", errors);
 	validateOptionalEnum(intent, "language", TOOL_INTENT_LANGUAGES, "intent.", errors);
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
 	const toolCalls = getV2Section(source, "toolCalls", errors);
-	validateKnownKeys(toolCalls, ["layout", "style", "bashCommandPreviewRows"], "toolCalls.", errors);
+	validateKnownKeys(toolCalls, ["layout", "bashCommandPreviewRows", "expandedTimeline", "showContextGrowth"], "toolCalls.", errors);
 	validateOptionalEnum(toolCalls, "layout", TOOL_CALL_LAYOUTS, "toolCalls.", errors);
-	validateOptionalEnum(toolCalls, "style", TOOL_CALL_STYLES, "toolCalls.", errors);
 	validateOptionalInteger(toolCalls, "bashCommandPreviewRows", 1, 8, "toolCalls.", errors);
+	validateOptionalEnum(toolCalls, "expandedTimeline", EXPANDED_TIMELINES, "toolCalls.", errors);
+	validateOptionalBoolean(toolCalls, "showContextGrowth", "toolCalls.", errors);
 
 	if (!hasOwn(source, "results")) errors.push("results: required section");
 	const results = getV2Section(source, "results", errors);
@@ -483,8 +481,7 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalBoolean(diff, "wordWrap", "diff.", errors);
 
 	const transcript = getV2Section(source, "transcript", errors);
-	validateKnownKeys(transcript, ["userMessageStyle"], "transcript.", errors);
-	validateOptionalEnum(transcript, "userMessageStyle", ["boxed", "default"], "transcript.", errors);
+	validateKnownKeys(transcript, [], "transcript.", errors);
 
 	const tools = getV2Section(source, "tools", errors);
 	validateKnownKeys(tools, ["passthrough", "custom"], "tools.", errors);
@@ -586,14 +583,11 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		customToolOverrides: tools.custom,
 		toolIntent: source.intent,
 		toolCallLayout: toolCalls.layout,
-		toolCallStyle: toolCalls.style,
+		expandedTimeline: toolCalls.expandedTimeline,
+		showContextGrowth: toolCalls.showContextGrowth,
+		toolCallStyle: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
 		bashCommandPreviewRows: toolCalls.bashCommandPreviewRows,
-		enableNativeUserMessageBox:
-			transcript.userMessageStyle === "default"
-				? false
-				: transcript.userMessageStyle === "boxed"
-					? true
-					: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
+		enableNativeUserMessageBox: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
 		previewRows: results.previewRows,
 		expandedPreviewMaxRows: advanced.expandedRows,
 		diffViewMode: diff.layout,
@@ -620,14 +614,16 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	};
 
 	const intent: Record<string, unknown> = {};
-	if (config.toolIntent.enabled !== defaults.toolIntent.enabled) intent.enabled = config.toolIntent.enabled;
 	if (config.toolIntent.language !== defaults.toolIntent.language) intent.language = config.toolIntent.language;
 	if (config.toolIntent.maxLength !== defaults.toolIntent.maxLength) intent.maxLength = config.toolIntent.maxLength;
 	assignSection(output, "intent", intent);
 
 	const toolCalls: Record<string, unknown> = {};
 	if (config.toolCallLayout !== defaults.toolCallLayout) toolCalls.layout = config.toolCallLayout;
-	if (config.toolCallStyle !== defaults.toolCallStyle) toolCalls.style = config.toolCallStyle;
+	if (config.expandedTimeline !== defaults.expandedTimeline) {
+		toolCalls.expandedTimeline = config.expandedTimeline;
+	}
+	if (config.showContextGrowth) toolCalls.showContextGrowth = true;
 	if (config.bashCommandPreviewRows !== defaults.bashCommandPreviewRows) {
 		toolCalls.bashCommandPreviewRows = config.bashCommandPreviewRows;
 	}
@@ -645,12 +641,6 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	if (config.diffCollapsedMode !== defaults.diffCollapsedMode) diff.collapsedMode = config.diffCollapsedMode;
 	if (config.diffWordWrap !== defaults.diffWordWrap) diff.wordWrap = config.diffWordWrap;
 	assignSection(output, "diff", diff);
-
-	const transcript: Record<string, unknown> = {};
-	if (config.enableNativeUserMessageBox !== defaults.enableNativeUserMessageBox) {
-		transcript.userMessageStyle = config.enableNativeUserMessageBox ? "boxed" : "default";
-	}
-	assignSection(output, "transcript", transcript);
 
 	const tools: Record<string, unknown> = {};
 	const passthrough = new Set(config.passthroughToolNames);

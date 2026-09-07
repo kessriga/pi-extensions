@@ -67,21 +67,28 @@ function createApiStub(
 // Tests
 // ---------------------------------------------------------------------------
 
-test("migration notice is published through Pi status output", () => {
+test("migration notice uses notify and does not park a long status line", () => {
   const statuses: Array<{ key: string; text: string | undefined }> = [];
+  const notices: Array<{ message: string; level: string }> = [];
   publishToolDisplayMigrationNotice(
     {
       setStatus(key, text): void {
         statuses.push({ key, text });
       },
+      notify(message, level): void {
+        notices.push({ message, level });
+      },
     },
     "bashCollapsedLines was removed; adjust results.previewRows",
   );
-  assert.deepEqual(statuses, [
+  assert.deepEqual(notices, [
     {
-      key: "tool-display-intent-migration",
-      text: "bashCollapsedLines was removed; adjust results.previewRows",
+      message: "bashCollapsedLines was removed; adjust results.previewRows",
+      level: "warning",
     },
+  ]);
+  assert.deepEqual(statuses, [
+    { key: "tool-display-intent-migration", text: undefined },
   ]);
 });
 
@@ -100,12 +107,12 @@ test("entry point registers expected lifecycle handlers", () => {
   assert.ok(beforeAgentStartCount >= 1, "at least one before_agent_start handler registered");
 });
 
-test("entry point registers tool-display-intent command", () => {
+test("entry point registers tools command", () => {
   const { api, capturedCommands } = createApiStub();
   toolDisplayExtension(api);
 
   const cmdNames = capturedCommands.map((c) => c.name);
-  assert.ok(cmdNames.includes("tool-display-intent"), "tool-display-intent command registered");
+  assert.ok(cmdNames.includes("tools"), "tools command registered");
 });
 
 test("entry point registers built-in tool overrides", () => {
@@ -168,7 +175,7 @@ test("multiple calls to toolDisplayExtension are idempotent", () => {
   assert.ok(toolNames.filter((n) => n === "write").length >= 1, "write registered at least once");
 
   const cmdNames = capturedCommands.map((c) => c.name);
-  assert.ok(cmdNames.filter((n) => n === "tool-display-intent").length >= 1, "command registered at least once");
+  assert.ok(cmdNames.filter((n) => n === "tools").length >= 1, "command registered at least once");
 });
 
 test("entry point tolerates empty getAllTools and getCommands results", () => {

@@ -98,19 +98,15 @@ describe("tool display integration", () => {
 				"Set web_read objective only to a valid CSS selector for Jina targeted extraction; do not pass a natural-language question",
 			);
 
-			const intentGuidelines = registeredTools.map((tool) => tool.promptGuidelines.at(-1));
 			for (const tool of registeredTools) {
 				const schema = tool.parameters as {
-					properties: Record<string, unknown>;
-					required: string[];
+					properties?: Record<string, unknown>;
+					required?: string[];
 				};
-				expect(schema.properties.displaySummary).toBeDefined();
-				expect(schema.required).toContain("displaySummary");
-				expect(tool.promptGuidelines.at(-1)).toContain(
-					"Every tool call whose schema defines displaySummary must include it",
-				);
+				expect(schema.properties?.displaySummary).toBeUndefined();
+				expect(schema.required?.includes("displaySummary") ?? false).toBe(false);
+				expect(tool.promptGuidelines?.some((line: string) => line.includes("displaySummary")) ?? false).toBe(false);
 			}
-			expect(new Set(intentGuidelines).size).toBe(1);
 		} finally {
 			if (previousApi === undefined) {
 				delete globalWithApi[apiKey];
@@ -499,12 +495,17 @@ describe("resolveConfigValue", () => {
 		}
 	});
 
-	it("warns for ALL_CAPS that is unset", () => {
+	it("reports an unset credential without writing to the terminal or echoing the reference", () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const result = resolveConfigValue("DEFINITELY_NOT_SET_XYZ");
-		expect(result).toBeUndefined();
-		expect(warnSpy).toHaveBeenCalled();
-		warnSpy.mockRestore();
+		const notices: string[] = [];
+		try {
+			const result = resolveConfigValue("DEFINITELY_NOT_SET_XYZ", (message) => notices.push(message));
+			expect(result).toBeUndefined();
+			expect(notices).toHaveLength(1);
+			expect(notices[0]).toContain("unset");
+			expect(notices[0]).not.toContain("DEFINITELY_NOT_SET_XYZ");
+			expect(warnSpy).not.toHaveBeenCalled();
+		} finally { warnSpy.mockRestore(); }
 	});
 });
 

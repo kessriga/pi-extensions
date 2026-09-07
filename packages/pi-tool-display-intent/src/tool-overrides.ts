@@ -30,10 +30,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
+import { formatFlatArgumentPreview } from "./arg-preview.js";
 import {
   AggregateProjection,
   registerAggregateProjectionEvents,
 } from "./aggregate-activity.js";
+import { setAggregateCallPresentationLookup } from "./call-presentation-registry.js";
 import { renderBashCall } from "./bash-display.js";
 import {
   normalizeDisplaySummary,
@@ -296,7 +298,8 @@ function registerRuntimeTool(
   }
   const config = getConfig();
   const toolIntent = config.toolIntent;
-  const registeredTool = config.toolCallLayout === "individual" && toolIntent.enabled
+  const wantsIntent = tool.name === "bash";
+  const registeredTool = wantsIntent
     ? withDisplaySummary(styledTool as never, {
         required: true,
         language: toolIntent.language,
@@ -1525,18 +1528,17 @@ function formatGenericToolCallLine(
     return new Text(line, 0, 0);
   }
 
-  const argCount = Object.keys(argRecord).length;
-  const argSuffix = formatArgCountSuffix(argCount, theme);
+  const argumentPreview = formatFlatArgumentPreview(argRecord);
   const line = config.toolCallStyle === "claude"
     ? formatClaudeToolCall(
         toolName,
-        theme.fg("muted", argCount === 0 ? "no args" : `${argCount} ${pluralize(argCount, "arg")}`),
+        theme.fg("muted", argumentPreview),
         "",
         intentSuffix,
         theme,
         context,
       )
-    : `${theme.fg("toolTitle", theme.bold(toolName))}${argSuffix}${intentSuffix}`;
+    : `${theme.fg("toolTitle", theme.bold(toolName))} (${theme.fg("muted", argumentPreview)})${intentSuffix}`;
   return new Text(line, 0, 0);
 }
 
@@ -1813,6 +1815,13 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
   const api: ToolDisplayApi = {
     version: 1,
     decorateTool<T extends RuntimeToolDefinition>(tool: T, adapter?: ToolDisplayAdapter): T {
+      if (adapter) {
+        const toolName = adapter.toolName || getTextField(tool, "name");
+        api.registerAdapter({
+          ...adapter,
+          toolName,
+        });
+      }
       if (getConfig().toolCallLayout === "aggregate") return tool;
       const resolvedAdapter = resolveAdapter(tool, adapter);
       const kind = getAdapterKind(tool, resolvedAdapter);
@@ -1900,14 +1909,12 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
 
   const globalWithApi = globalThis as GlobalWithToolDisplayApi;
   globalWithApi[TOOL_DISPLAY_API_KEY] = api;
-  if (getConfig().toolCallLayout === "aggregate") {
-    // Pending entries belong to this runtime's original tool definitions. Drop
-    // the decoration requests instead of flattening descriptors with a no-op
-    // Object.assign; a later individual reload receives fresh registrations.
-    globalWithApi[TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?.splice(0);
-  } else {
-    drainPendingToolDisplayDecorations(api);
-  }
+  setAggregateCallPresentationLookup((toolName, args) => {
+    const adapter = adapters.get(toolName);
+    if (!adapter?.getCallPresentation) return undefined;
+    return resolveCallPresentation(toRecord(stripDisplaySummary(args)), adapter);
+  });
+  drainPendingToolDisplayDecorations(api);
   return api;
 }
 
@@ -1933,6 +1940,7 @@ export function registerToolDisplayOverrides(
     const globalWithApi = globalThis as GlobalWithToolDisplayApi;
     if (globalWithApi[TOOL_DISPLAY_API_KEY] === toolDisplayApi) {
       delete globalWithApi[TOOL_DISPLAY_API_KEY];
+      setAggregateCallPresentationLookup(undefined);
     }
   });
   const bootstrapTools = getBuiltInTools(process.cwd());
@@ -1941,10 +1949,14 @@ export function registerToolDisplayOverrides(
   const writeExecutionMetaByToolCallId = new Map<string, WriteExecutionMeta>();
   const registeredBuiltInToolOverrides = new Set<BuiltInToolOverrideName>();
   const aggregateProjection = getConfig().toolCallLayout === "aggregate"
-    ? new AggregateProjection((toolName) =>
-        getConfig().passthroughToolNames.includes(toolName) ||
-        ((BUILT_IN_TOOL_OVERRIDE_NAMES as readonly string[]).includes(toolName) &&
-          !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]))
+    ? new AggregateProjection(
+        (toolName) =>
+          getConfig().passthroughToolNames.includes(toolName) ||
+          ((BUILT_IN_TOOL_OVERRIDE_NAMES as readonly string[]).includes(toolName) &&
+            !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]),
+        () => getConfig().expandedTimeline,
+        () => getConfig().showContextGrowth,
+      )
     : undefined;
   const registerOwnedTool = (tool: RuntimeToolDefinition): void =>
     registerRuntimeTool(pi, tool, getConfig, aggregateProjection);
@@ -2496,6 +2508,6 @@ export function registerToolDisplayOverrides(
   });
 
   if (aggregateProjection) {
-    registerAggregateProjectionEvents(pi, aggregateProjection);
+    registerAggregateProjectionEvents(pi, aggregateProjection, { getConfig });
   }
 }

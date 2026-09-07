@@ -2,13 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
   "version": 2,
   "intent": {
-    "enabled": true,
     "language": "zh-CN",
     "maxLength": 96
   },
   "toolCalls": {
     "layout": "individual",
-    "style": "claude",
+    "showContextGrowth": false,
     "bashCommandPreviewRows": 1
   },
   "results": {
@@ -23,11 +22,8 @@
     "collapsedMode": "body",
     "wordWrap": true
   },
-  "transcript": {
-    "userMessageStyle": "boxed"
-  },
   "tools": {
-    "passthrough": ["Agent"],
+    "passthrough": [],
     "custom": {
       "web_search": {
         "renderer": "generic",

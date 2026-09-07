@@ -72,7 +72,6 @@ test("legacy normalization validates toolIntent and displaySummary independently
 		displaySummary: { enabled: true, language: "en", maxLength: 32 },
 	});
 	assert.deepEqual(normalized.toolIntent, {
-		enabled: false,
 		language: "zh-CN",
 		maxLength: 256,
 	});
@@ -87,7 +86,6 @@ test("legacy normalization validates toolIntent and displaySummary independently
 		},
 	});
 	assert.deepEqual(migrated.toolIntent, {
-		enabled: false,
 		language: "en",
 		maxLength: 64,
 	});
@@ -164,11 +162,11 @@ test("legacy config migrates to simple v2 and reports discarded bash rows throug
 		assert.equal(persisted.$schema, TOOL_DISPLAY_CONFIG_SCHEMA_URL);
 		assert.equal(persisted.enabled, undefined);
 		assert.deepEqual(persisted.intent, { language: "zh-CN" });
-		assert.deepEqual(persisted.toolCalls, { style: "claude" });
+		assert.equal(persisted.toolCalls, undefined);
 		assert.deepEqual(persisted.results, { mode: "compact", previewRows: 10 });
-		assert.deepEqual(persisted.transcript, { userMessageStyle: "default" });
+		assert.equal(persisted.transcript, undefined);
 		assert.deepEqual(persisted.tools, {
-			passthrough: ["Agent", "grep"],
+			passthrough: ["grep"],
 			custom: {
 				web_search: { renderer: "generic", mode: "summary" },
 			},
@@ -251,7 +249,8 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 			kind: "mcp",
 			outputMode: "preview",
 		});
-		assert.equal(loaded.config.enableNativeUserMessageBox, false);
+		assert.equal(loaded.config.enableNativeUserMessageBox, true);
+		assert.equal(loaded.config.toolCallStyle, "claude");
 		assert.equal(loaded.config.diffCollapsedRows, 40);
 		assert.equal(loaded.config.expandedPreviewMaxRows, 300);
 		assert.equal(loaded.config.debug, true);
@@ -263,13 +262,13 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		resultMode: "preview",
 		previewRows: 16,
-		toolIntent: { enabled: false, language: "zh-CN", maxLength: 80 },
+		toolIntent: { language: "zh-CN", maxLength: 80 },
 		toolCallLayout: "aggregate",
 		bashCommandPreviewRows: 2,
 	});
 	const serialized = serializeToolDisplayConfigV2(config);
 	assert.deepEqual(serialized.results, { mode: "preview", previewRows: 16 });
-	assert.deepEqual(serialized.intent, { enabled: false, language: "zh-CN", maxLength: 80 });
+	assert.deepEqual(serialized.intent, { language: "zh-CN", maxLength: 80 });
 	assert.deepEqual(serialized.toolCalls, { layout: "aggregate", bashCommandPreviewRows: 2 });
 	assert.equal(serialized.transcript, undefined);
 
@@ -280,7 +279,7 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 	});
 });
 
-test("default Agent passthrough stays sparse while arbitrary escape tools round-trip", () => {
+test("default full aggregation stays sparse while explicit passthrough exceptions round-trip", () => {
 	const defaults = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.equal(defaults.tools, undefined);
 	const config = normalizeToolDisplayConfig({
@@ -299,8 +298,100 @@ test("default Agent passthrough stays sparse while arbitrary escape tools round-
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		passthroughToolNames: [],
 	});
-	assert.deepEqual(serializeToolDisplayConfigV2(aggregateEverything).tools, { passthrough: [] });
+	assert.deepEqual(DEFAULT_TOOL_DISPLAY_CONFIG.passthroughToolNames, []);
+	assert.equal(serializeToolDisplayConfigV2(aggregateEverything).tools, undefined);
 });
+
+test("v2 expandedTimeline serializes sparsely and round-trips", () => {
+	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.expandedTimeline, "flat");
+	const defaults = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
+	assert.equal(defaults.toolCalls, undefined);
+
+	const config = normalizeToolDisplayConfig({
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		expandedTimeline: "turns",
+	});
+	const serialized = serializeToolDisplayConfigV2(config);
+	assert.deepEqual(serialized.toolCalls, { expandedTimeline: "turns" });
+
+	withTempDir("pi-tool-display-config-expanded-timeline-", (dir) => {
+		const configFile = join(dir, "config.json");
+		writeFileSync(configFile, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
+		assert.equal(loadToolDisplayConfig(configFile).config.expandedTimeline, "turns");
+	});
+});
+
+test("context growth defaults off and normalization accepts only booleans", () => {
+	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.showContextGrowth, false);
+	assert.equal(normalizeToolDisplayConfig({}).showContextGrowth, false);
+	assert.equal(serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG).toolCalls, undefined);
+	assert.equal(normalizeToolDisplayConfig({ showContextGrowth: true }).showContextGrowth, true);
+	assert.equal(normalizeToolDisplayConfig({ showContextGrowth: false }).showContextGrowth, false);
+	for (const invalid of [undefined, null, "true", "false", 1, 0, [], {}]) {
+		assert.equal(normalizeToolDisplayConfig({ showContextGrowth: invalid }).showContextGrowth, false);
+	}
+	withTempDir("pi-tool-display-config-context-default-", (dir) => {
+		assert.equal(loadToolDisplayConfig(join(dir, "missing.json")).config.showContextGrowth, false);
+	});
+});
+
+test("v2 context growth persists only when enabled and round-trips without losing other settings", () => {
+	const enabled = normalizeToolDisplayConfig({
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate",
+		expandedTimeline: "turns",
+		showContextGrowth: true,
+		resultMode: "preview",
+		previewRows: 16,
+	});
+	assert.deepEqual(serializeToolDisplayConfigV2(enabled).toolCalls, {
+		layout: "aggregate",
+		expandedTimeline: "turns",
+		showContextGrowth: true,
+	});
+
+	withTempDir("pi-tool-display-config-context-roundtrip-", (dir) => {
+		const configFile = join(dir, "config.json");
+		assert.equal(saveToolDisplayConfig(enabled, configFile).success, true);
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.error, undefined);
+		assert.equal(loaded.notice, undefined);
+		assert.deepEqual(loaded.config, enabled);
+
+		const disabled = { ...loaded.config, showContextGrowth: false };
+		assert.equal(saveToolDisplayConfig(disabled, configFile).success, true);
+		const persisted = JSON.parse(readFileSync(configFile, "utf8"));
+		assert.deepEqual(persisted.toolCalls, { layout: "aggregate", expandedTimeline: "turns" });
+		assert.deepEqual(loadToolDisplayConfig(configFile).config, disabled);
+	});
+});
+
+for (const invalid of ["true", "false", 1, 0, null, [], {}]) {
+	test(`v2 context growth drops non-boolean ${JSON.stringify(invalid)} without losing valid settings`, () => {
+		withTempDir("pi-tool-display-config-context-invalid-", (dir) => {
+			const configFile = join(dir, "config.json");
+			writeFileSync(configFile, JSON.stringify({
+				version: 2,
+				toolCalls: { layout: "aggregate", expandedTimeline: "turns", showContextGrowth: invalid },
+				results: { mode: "preview", previewRows: 16 },
+			}), "utf8");
+
+			const loaded = loadToolDisplayConfig(configFile);
+			assert.equal(loaded.error, undefined);
+			assert.match(loaded.notice ?? "", /toolCalls\.showContextGrowth: expected boolean/);
+			assert.deepEqual(loaded.config, normalizeToolDisplayConfig({
+				toolCallLayout: "aggregate",
+				expandedTimeline: "turns",
+				showContextGrowth: false,
+				resultMode: "preview",
+				previewRows: 16,
+			}));
+			const persisted = JSON.parse(readFileSync(configFile, "utf8"));
+			assert.deepEqual(persisted.toolCalls, { layout: "aggregate", expandedTimeline: "turns" });
+			assert.equal(loadToolDisplayConfig(configFile).notice, undefined);
+		});
+	});
+}
 
 test("default individual layout stays sparse and old v2 configs remain compatible", () => {
 	const serialized = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
@@ -313,6 +404,7 @@ test("default individual layout stays sparse and old v2 configs remain compatibl
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
 		assert.equal(loaded.config.toolCallLayout, "individual");
+		assert.equal(loaded.config.showContextGrowth, false);
 	});
 });
 
@@ -347,14 +439,14 @@ test("removed thinkingLabel is dropped from existing v2 configs", () => {
 		writeFileSync(configFile, original, "utf8");
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
-		assert.equal(loaded.config.enableNativeUserMessageBox, false);
+		assert.equal(loaded.config.enableNativeUserMessageBox, true);
 		assert.equal("enableThinkingLabel" in loaded.config, false);
 		assert.match(loaded.notice ?? "", /transcript\.thinkingLabel: unknown setting/);
+		assert.match(loaded.notice ?? "", /transcript\.userMessageStyle: unknown setting/);
 		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as {
 			transcript?: { thinkingLabel?: boolean; userMessageStyle?: string };
 		};
-		assert.equal(persisted.transcript?.thinkingLabel, undefined);
-		assert.equal(persisted.transcript?.userMessageStyle, "default");
+		assert.equal(persisted.transcript, undefined);
 	});
 });
 

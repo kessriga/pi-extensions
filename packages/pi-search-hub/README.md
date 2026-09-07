@@ -41,8 +41,6 @@ Important call options include:
 
 Both tools use the cooperative API from [`pi-tool-display-intent`](../pi-tool-display-intent) rather than maintaining separate TUI renderers:
 
-- the current model writes a required `displaySummary` intent in the normal tool call, with no additional inference request;
-- the presentation-only field is removed before Search Hub execution;
 - call lines show the search query or a shortened URL instead of generic `(N args)` text;
 - result rendering inherits the active global `results.mode` through `outputMode: "inherit"`.
 
@@ -72,6 +70,8 @@ Search Hub reads configuration from:
 2. `.pi/extension-data/pi-search-hub/config.json` in a trusted current project.
 
 Trusted project settings win. Backend maps are merged per backend, so a project can override one backend without repeating every global entry. Untrusted projects are never probed for Search Hub configuration. Configuration is refreshed during use; interactive edits are staged until `Save & apply`.
+
+Configuration, credential and Exa usage warnings appear as deduplicated Pi notifications instead of raw terminal output. Successful tool results also retain warnings in their details, including in headless runs. Ordinary provider failures continue through the existing tool-error and fallback paths.
 
 On first use, Search Hub automatically migrates the previous global and trusted-project paths, upgrades recognized settings, drops unmappable fields with a warning, and removes the old file only after the new file passes a semantic round trip. Exa usage state similarly moves to `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/state/exa-usage.json` with serialized atomic updates.
 

@@ -7,11 +7,13 @@ import {
 	aggregateAssistantFrameId,
 	applyAggregateGroupFrame,
 	attachExpandedAggregateSummary,
-	renderAggregateActivity,
+	framePrefixForEdge,
+	renderExpandedAggregateSummary,
 	resolveAggregateProjection,
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
-import { onReloadShutdown } from "./extension-lifecycle.js";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling } from "./aggregate-interaction.js";
 
 interface PatchableAssistantMessage {
 	render(width: number): string[];
@@ -29,9 +31,14 @@ interface PatchableAssistantPrototype {
 	render(width: number): string[];
 	setExpanded?(expanded: boolean): void;
 	[AGGREGATE_THINKING_PATCH_KEY]?: AggregateThinkingPatchState;
+	[LEGACY_THINKING_PATCH_KEY]?: AggregateThinkingPatchState;
 }
 
 interface AggregateThinkingPatchState {
+	owner: typeof THINKING_MODULE;
+	releaseOwner(): void;
+	renderImpl: (this: PatchableAssistantMessage, width: number) => string[];
+	onExpanded?: (this: PatchableAssistantMessage, expanded: boolean) => void;
 	originalRender: (this: PatchableAssistantMessage, width: number) => string[];
 	patchedRender: (this: PatchableAssistantMessage, width: number) => string[];
 	originalSetExpanded?: (this: PatchableAssistantMessage, expanded: boolean) => void;
@@ -40,8 +47,10 @@ interface AggregateThinkingPatchState {
 }
 
 const AGGREGATE_THINKING_PATCH_KEY = Symbol.for(
-	"pi-tool-display-intent.aggregate-thinking-placeholder.v1",
+	"pi-tool-display-intent.aggregate-thinking-placeholder.v2",
 );
+const LEGACY_THINKING_PATCH_KEY = Symbol.for("pi-tool-display-intent.aggregate-thinking-placeholder.v1");
+const THINKING_MODULE = { retired: false };
 const AGGREGATE_ASSISTANT_EXPANDED_KEY = Symbol.for(
 	"pi-tool-display-intent.aggregate-assistant-expanded.v1",
 );
@@ -52,7 +61,7 @@ const DEFAULT_HIDDEN_THINKING_LABEL = "Thinking...";
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const registeredApis = new WeakSet<ExtensionAPI>();
-let thinkingPatchOwnerCount = 0;
+let thinkingOwner: ExtensionAPI | undefined;
 
 function toRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value)
@@ -152,8 +161,15 @@ export function isInterimAssistantNarration(component: unknown): boolean {
 	if (stopReason === "error" || stopReason === "aborted" || stopReason === "length" || stopReason === "stop") {
 		return false;
 	}
-	if (stopReason === "toolUse") return true;
-	return messageContentBlocks(message).some((blockValue) => toRecord(blockValue).type === "toolCall");
+	if (stopReason !== "toolUse" && !messageContentBlocks(message).some((blockValue) => toRecord(blockValue).type === "toolCall")) {
+		return false;
+	}
+	const projection = resolveAggregateProjection(
+		undefined,
+		aggregateAssistantFrameId(message),
+		firstToolCallId(message),
+	);
+	return projection?.shouldFrameAssistantNarration(message) === true;
 }
 
 /** @deprecated Use shouldHideCollapsedThinkingPlaceholder. */
@@ -161,8 +177,8 @@ export function isPureHiddenThinkingMessage(component: unknown): boolean {
 	return shouldHideCollapsedThinkingPlaceholder(component);
 }
 
-function isExpanded(component: PatchableAssistantMessage): boolean {
-	return component[AGGREGATE_ASSISTANT_EXPANDED_KEY] === true;
+function isExpanded(component: PatchableAssistantMessage, fallback = false): boolean {
+	return component[AGGREGATE_ASSISTANT_EXPANDED_KEY] ?? fallback;
 }
 
 function assistantFrameId(component: PatchableAssistantMessage): string {
@@ -197,7 +213,11 @@ function decorateAssistantLines(
 	} catch {
 		// Public markdown fallbacks and unbound Pi theme helpers must not crash render.
 	}
-	return lines.map((line, index) => index === firstVisible ? `${mark} ${line}` : line);
+	const continuation = " ".repeat(visibleWidth(`${AGGREGATE_ASSISTANT_MARK} `));
+	// Keep native left padding, and reserve the marker column on every row.
+	// Only discard right-side fill: carrying Markdown's padded width into the
+	// frame pins even a short first row to the terminal edge.
+	return lines.map((line, index) => `${index === firstVisible ? `${mark} ` : continuation}${line.trimEnd()}`);
 }
 
 function getPrototype(): PatchableAssistantPrototype {
@@ -205,31 +225,38 @@ function getPrototype(): PatchableAssistantPrototype {
 }
 
 export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boolean): void {
+	if (THINKING_MODULE.retired) return;
 	const prototype = getPrototype();
-	const existing = prototype[AGGREGATE_THINKING_PATCH_KEY];
-	if (existing) {
-		existing.isAggregateEnabled = isAggregateEnabled;
-		// Another extension may deliberately wrap our renderer. Keep that outer
-		// wrapper in place instead of reapplying and creating a recursive chain.
-		return;
+	const legacy = prototype[LEGACY_THINKING_PATCH_KEY];
+	if (legacy) {
+		legacy.isAggregateEnabled = () => false;
+		if (prototype.render === legacy.patchedRender) prototype.render = legacy.originalRender;
+		if (prototype.setExpanded === legacy.patchedSetExpanded) prototype.setExpanded = legacy.originalSetExpanded;
 	}
-
-	const state = {} as AggregateThinkingPatchState;
-	state.originalRender = prototype.render as AggregateThinkingPatchState["originalRender"];
-	state.originalSetExpanded = typeof prototype.setExpanded === "function"
-		? prototype.setExpanded
-		: undefined;
+	const existing = prototype[AGGREGATE_THINKING_PATCH_KEY];
+	if (existing && existing.owner !== THINKING_MODULE) existing.releaseOwner();
+	patchAggregateMouseHandling(prototype);
+	const state = existing ?? {} as AggregateThinkingPatchState;
+	if (!existing) {
+		state.originalRender = prototype.render as AggregateThinkingPatchState["originalRender"];
+		state.originalSetExpanded = prototype.setExpanded;
+		state.patchedRender = function(width) { return state.renderImpl.call(this, width); };
+		state.patchedSetExpanded = function(expanded) {
+			state.onExpanded?.call(this, expanded);
+			state.originalSetExpanded?.call(this, expanded);
+			try { this.invalidate?.(); } catch { /* Disposed transcript component. */ }
+		};
+	}
+	state.owner = THINKING_MODULE;
+	state.releaseOwner = () => { THINKING_MODULE.retired = true; thinkingOwner = undefined; };
 	state.isAggregateEnabled = isAggregateEnabled;
-	state.patchedSetExpanded = function setAggregateAssistantExpanded(expanded: boolean): void {
+	state.onExpanded = function(expanded) {
 		this[AGGREGATE_ASSISTANT_EXPANDED_KEY] = expanded === true;
-		state.originalSetExpanded?.call(this, expanded);
-		try {
-			this.invalidate?.();
-		} catch {
-			// A stale transcript component may already be disposed.
-		}
+		resolveAggregateProjection(undefined, aggregateAssistantFrameId(this.lastMessage), firstToolCallId(this.lastMessage))
+			?.noteTimelineExpansion(expanded === true);
 	};
-	state.patchedRender = function renderAggregateAssistantMessage(width: number): string[] {
+	state.renderImpl = function renderAggregateAssistantMessage(width: number): string[] {
+		releaseAggregateClickRegions(this);
 		if (!state.isAggregateEnabled()) return state.originalRender.call(this, width);
 
 		const hideThinking = this.hideThinkingBlock === true;
@@ -239,16 +266,30 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		// Thinking is never narration. Drop thinking blocks before render so
 		// overlapping final text cannot be mistaken for reasoning.
 		const stripThinkingBody = hideThinking || interim || (stopReason === "stop" && hasNarrationText);
+		// Native Markdown pads every row to the width it receives. Reserve the
+		// frame and narration marker before layout, not by clipping padded rows
+		// afterwards (which also turns blank lines into full-width ellipses).
+		const narrationWidth = interim
+			? Math.max(1, width - visibleWidth(`${framePrefixForEdge("start")}${AGGREGATE_ASSISTANT_MARK} `))
+			: width;
 		const lines = stripThinkingBody
-			? renderWithoutThinkingBlocks(this, state.originalRender, width)
-			: state.originalRender.call(this, width);
+			? renderWithoutThinkingBlocks(this, state.originalRender, narrationWidth)
+			: state.originalRender.call(this, narrationWidth);
 		const next = stripCollapsedThinkingPlaceholderLines(lines, resolveHiddenThinkingLabel(this));
 		const toolCallId = firstToolCallId(this.lastMessage);
 		const frameId = assistantFrameId(this);
 		const projection = resolveAggregateProjection(undefined, frameId, toolCallId);
+		projection?.connectContextRenderer(this.lastMessage, () => {
+			try { this.invalidate?.(); } catch { /* Disposed transcript component. */ }
+		});
+		const expanded = projection?.isMessageExpanded(this.lastMessage, isExpanded(this, projection?.isTimelineExpanded()))
+			?? isExpanded(this);
+		const contextLines = (projection?.getAssistantContextLines(this.lastMessage, expanded) ?? [])
+			.map((line) => truncateToWidth(`  ${resolveAggregateRenderTheme(projection).fg("muted", line)}`, Math.max(0, width), "…"));
 		const trimmed = trimBlankEdges(next);
 		if (interim) {
-			if (!hasNarrationText || trimmed.length === 0 || !isExpanded(this)) {
+			recordAggregateClickRegions(this, width, 0);
+			if (!hasNarrationText || trimmed.length === 0 || !expanded) {
 				projection?.markFrameContentVisible(frameId, false);
 				if (!hasNarrationText || trimmed.length === 0) projection?.untrackFramedItem(frameId);
 				else projection?.trackFramedItem(frameId, undefined, toolCallId);
@@ -264,42 +305,52 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			});
 			projection?.markFrameContentVisible(frameId, true);
 		}
-		if (trimmed.length === 0) return [];
+		if (trimmed.length === 0) return contextLines.length > 0 ? ["", ...contextLines] : [];
 		if (!interim) {
 			// Thinking-placeholder cleanup also trims Pi's leading Spacer(1).
-			// Put that gap back after the user prompt; leave it off when a Tools
-			// ledger already supplied the trailing blank.
-			const stackedOnTools = projection?.hasPaintedToolsLedger(this.lastMessage) === true;
-			if (stackedOnTools) return next;
-			return visibleText(next[0] ?? "") === "" ? next : ["", ...next];
+			// Put that gap back after the user prompt or a passthrough tool.
+			// Only the reply sitting under the Tools ledger omits it, so later
+			// tools in the same user turn cannot steal the blank from earlier text.
+			const stackedOnTools = projection?.assistantFollowsAggregateLedger(this.lastMessage) === true;
+			const body = stackedOnTools || visibleText(next[0] ?? "") === "" ? next : ["", ...next];
+			return [...body, ...contextLines];
 		}
 		const theme = resolveAggregateRenderTheme(projection);
 		const marked = decorateAssistantLines(trimmed, theme);
+		const inner = projection?.framedItemFollowsTool(frameId) === true ? ["", ...marked] : marked;
 		const edge = projection?.getFrameEdge(frameId) ?? "only";
-		const framed = applyAggregateGroupFrame(marked, width, theme, edge);
+		const framed = applyAggregateGroupFrame(inner, width, theme, edge);
+		const run = projection?.getViewportRun(frameId);
 		if (projection?.shouldHostExpandedSummary(frameId)) {
 			const headerView = projection.getViewForGroup(frameId);
 			if (headerView) {
-				return attachExpandedAggregateSummary(
-					renderAggregateActivity(headerView, width, theme),
-					framed,
-				);
+				const header = renderExpandedAggregateSummary(headerView, width, theme);
+				const lines = attachExpandedAggregateSummary(header, framed);
+				recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: 1 + header.length, onClick: () => projection.toggleGroupExpansionFromComponent(frameId, this) }], run ? { run, titleRow: 1 } : undefined);
+				return lines;
 			}
 		}
+		recordAggregateClickRegions(this, width, framed.length, [], run ? { run } : undefined);
 		return framed;
 	};
 	Object.defineProperty(prototype, AGGREGATE_THINKING_PATCH_KEY, {
 		configurable: true,
 		value: state,
 	});
-	prototype.render = state.patchedRender;
-	prototype.setExpanded = state.patchedSetExpanded;
+	if (!existing) {
+		prototype.render = state.patchedRender;
+		prototype.setExpanded = state.patchedSetExpanded;
+	}
 }
 
 export function restoreAggregateThinkingPlaceholders(): void {
 	const prototype = getPrototype();
 	const state = prototype[AGGREGATE_THINKING_PATCH_KEY];
+	if (state && state.owner !== THINKING_MODULE) return;
+	restoreAggregateMouseHandling(prototype);
 	if (!state) return;
+	state.renderImpl = state.originalRender;
+	state.onExpanded = undefined;
 	if (prototype.render === state.patchedRender) {
 		prototype.render = state.originalRender;
 		if (prototype.setExpanded === state.patchedSetExpanded) {
@@ -318,19 +369,19 @@ export function registerAggregateThinkingPlaceholderSuppression(
 	pi: ExtensionAPI,
 	isAggregateEnabled: () => boolean,
 ): void {
-	if (!registeredApis.has(pi)) {
-		registeredApis.add(pi);
-		thinkingPatchOwnerCount += 1;
-	}
-	patchAggregateThinkingPlaceholders(isAggregateEnabled);
-
-	onReloadShutdown(pi, () => {
-		if (registeredApis.has(pi)) {
-			registeredApis.delete(pi);
-			thinkingPatchOwnerCount = Math.max(0, thinkingPatchOwnerCount - 1);
-		}
-		if (thinkingPatchOwnerCount === 0) restoreAggregateThinkingPlaceholders();
+	if (registeredApis.has(pi) || THINKING_MODULE.retired) return;
+	registeredApis.add(pi);
+	const bind = (hasUI: boolean | undefined) => {
+		if (hasUI === false || THINKING_MODULE.retired || (thinkingOwner && thinkingOwner !== pi)) return;
+		thinkingOwner = pi;
+		patchAggregateThinkingPlaceholders(isAggregateEnabled);
+	};
+	pi.on("session_shutdown", async () => {
+		registeredApis.delete(pi);
+		if (thinkingOwner !== pi) return;
+		thinkingOwner = undefined;
+		restoreAggregateThinkingPlaceholders();
 	});
-	pi.on("session_start", async () => patchAggregateThinkingPlaceholders(isAggregateEnabled));
-	pi.on("before_agent_start", async () => patchAggregateThinkingPlaceholders(isAggregateEnabled));
+	pi.on("session_start", async (_event, ctx) => bind(ctx?.hasUI));
+	pi.on("before_agent_start", async (_event, ctx) => bind(ctx?.hasUI));
 }

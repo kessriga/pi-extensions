@@ -28,10 +28,13 @@ export function publishToolDisplayMigrationNotice(
   },
   notice: string | undefined,
 ): void {
-  if (notice) {
-    ui.setStatus("tool-display-intent-migration", notice);
-    ui.notify?.(notice, "warning");
+  if (!notice) return;
+  ui.setStatus("tool-display-intent-migration", undefined);
+  if (typeof ui.notify === "function") {
+    ui.notify(notice, "warning");
+    return;
   }
+  ui.setStatus("tool-display-intent-migration", notice);
 }
 
 function toolRegistrationChanged(
@@ -44,7 +47,6 @@ function toolRegistrationChanged(
       next.registerToolOverrides[toolName],
   );
   const intentSchemaChanged =
-    previous.toolIntent.enabled !== next.toolIntent.enabled ||
     previous.toolIntent.language !== next.toolIntent.language ||
     previous.toolIntent.maxLength !== next.toolIntent.maxLength ||
     previous.toolCallLayout !== next.toolCallLayout ||
@@ -82,6 +84,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   const setConfig = (
     next: ToolDisplayConfig,
     ctx: ExtensionCommandContext,
+    options?: { skipReloadHint?: boolean },
   ): void => {
     const normalized = normalizeToolDisplayConfig(next);
     const requiresReload = toolRegistrationChanged(config, normalized);
@@ -92,9 +95,9 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
       ctx.ui.notify(saved.error, "error");
     }
 
-    if (requiresReload) {
+    if (requiresReload && !options?.skipReloadHint) {
       ctx.ui.notify(
-        "Tool ownership, layout, intent schema, or call frame updates apply after /reload.",
+        "Tool ownership or intent schema updates apply after /reload.",
         "warning",
       );
     }
@@ -107,8 +110,13 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   );
   registerNativeUserMessageBox(pi, getConfig);
 
-  pi.registerCommand("tool-display-intent", {
-    description: "Configure intent-aware tool rendering",
+  pi.registerCommand("tools", {
+    description: "Switch tool layout or open display settings",
+    getArgumentCompletions: (argumentPrefix) => {
+      return import("./config-modal.js").then(({ getToolDisplayArgumentCompletions }) =>
+        getToolDisplayArgumentCompletions(argumentPrefix),
+      );
+    },
     handler: async (args, ctx) => {
       const { runToolDisplayCommandHandler } = await import("./config-modal.js");
       await runToolDisplayCommandHandler(args, ctx, { getConfig, setConfig, getCapabilities });

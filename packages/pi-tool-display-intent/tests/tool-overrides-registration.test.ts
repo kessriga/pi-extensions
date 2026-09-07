@@ -28,7 +28,8 @@ import {
 	withDisplaySummary,
 } from "../tool-display-api-consumer.js";
 import { addDisplaySummaryParameter } from "../src/display-summary.js";
-import { restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
+import { formatAggregateTarget, restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
+import { setAggregateCallPresentationLookup } from "../src/call-presentation-registry.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { shortenPath } from "../src/render-utils.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
@@ -157,18 +158,18 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 	assert.equal((builtInTools.read as unknown as RegisteredToolLike).promptSnippet, undefined);
 	assert.notEqual(byName.get("read")?.promptSnippet, undefined);
 
-	const intentGuidelines = new Set<string>();
 	for (const [name, definition] of Object.entries(builtInDefinitions)) {
 		const registeredGuidelines = byName.get(name)?.promptGuidelines ?? [];
 		const builtInGuidelines = Array.isArray(definition.promptGuidelines)
 			? definition.promptGuidelines
 			: [];
-		assert.deepEqual(registeredGuidelines.slice(0, -1), builtInGuidelines);
-		const intentGuideline = registeredGuidelines.at(-1) ?? "";
-		assert.match(intentGuideline, /displaySummary/);
-		intentGuidelines.add(intentGuideline);
+		if (name === "bash") {
+			assert.deepEqual(registeredGuidelines.slice(0, -1), builtInGuidelines);
+			assert.match(registeredGuidelines.at(-1) ?? "", /displaySummary/);
+			continue;
+		}
+		assert.deepEqual(registeredGuidelines, builtInGuidelines);
 	}
-	assert.equal(intentGuidelines.size, 1);
 });
 
 test("registerToolDisplayOverrides registers built-in display renderers during extension load for pre-bind history rendering", () => {
@@ -211,26 +212,25 @@ test("registerToolDisplayOverrides clones built-in parameter schemas so Pi TUI k
 			builtInTool.parameters,
 			`expected '${name}' to use a cloned parameter object`,
 		);
-		assert.deepEqual(
-			registeredTool.parameters,
-			addDisplaySummaryParameter(builtInTool.parameters, {
+		const expectedParameters = name === "bash"
+			? addDisplaySummaryParameter(builtInTool.parameters, {
 				required: true,
 				language: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.language,
 				maxLength: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.maxLength,
-			}),
-		);
+			})
+			: builtInTool.parameters;
+		assert.deepEqual(registeredTool.parameters, expectedParameters);
 	}
 });
 
-test("registered built-ins expose intent in schemas and TUI while stripping it before execution", async () => {
-	await withTempDir("pi-tool-display-intent-read-", async (dir) => {
-		writeFileSync(join(dir, "sample.txt"), "hello intent\n", "utf-8");
+test("registered bash exposes intent in schemas and TUI while stripping it before execution", async () => {
+	await withTempDir("pi-tool-display-intent-bash-", async (dir) => {
 		const { api, registeredTools } = createExtensionApiStub();
 		registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 
-		const read = registeredTools.find((tool) => tool.name === "read") as ExecutableToolLike | undefined;
-		assert.ok(read);
-		const schema = read.parameters as {
+		const bash = registeredTools.find((tool) => tool.name === "bash") as ExecutableToolLike | undefined;
+		assert.ok(bash);
+		const schema = bash.parameters as {
 			properties: Record<string, unknown>;
 			required: string[];
 		};
@@ -238,13 +238,13 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 		assert.ok(schema.required.includes("displaySummary"));
 
 		const args = {
-			path: "sample.txt",
+			command: "printf hello",
 			displaySummary: "Checking the sample file",
 		};
-		const prepared = read.prepareArguments?.(args) as Record<string, unknown>;
+		const prepared = bash.prepareArguments?.(args) as Record<string, unknown>;
 		assert.equal(prepared.displaySummary, "Checking the sample file");
 
-		const component = read.renderCall?.(
+		const component = bash.renderCall?.(
 			args,
 			{
 				fg: (_color: string, text: string) => text,
@@ -252,10 +252,10 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 			},
 			{},
 		) as { render(width: number): string[] };
-		assert.match(component.render(160).join("\n"), /read sample\.txt — Checking the sample file/);
+		assert.match(component.render(160).join("\n"), /● Bash\(printf hello\) — Checking the sample file/);
 
-		const result = await read.execute("call-1", prepared, undefined, undefined, { cwd: dir });
-		assert.match(getTextOutput(result), /hello intent/);
+		const result = await bash.execute("call-1", prepared, undefined, undefined, { cwd: dir });
+		assert.match(getTextOutput(result), /hello/);
 	});
 });
 
@@ -449,7 +449,7 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 		bold: (text: string) => text,
 	};
 	const callComponent = customTool.renderCall?.(args, theme, {}) as { render(width: number): string[] };
-	assert.match(callComponent.render(160).join("\n"), /custom_probe remote alpha · cached — Checking the remote value/);
+	assert.match(callComponent.render(160).join("\n"), /● custom_probe\(remote alpha · cached\) — Checking the remote value/);
 
 	const resultComponent = customTool.renderResult?.(
 		{ content: [{ type: "text", text: "alpha\nbeta" }], details: {} },
@@ -472,7 +472,7 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 	const collapsedErrorLines = collapsedError.render(32).map((line) => line.trimEnd());
 	assert.equal(collapsedErrorLines.length, 1);
 	assert.ok(visibleWidth(collapsedErrorLines[0] ?? "") <= 32);
-	assert.match(collapsedErrorLines[0] ?? "", /^↳ Remote content failure/u);
+	assert.match(collapsedErrorLines[0] ?? "", /⎿ Remote content failure/u);
 	assert.doesNotMatch(collapsedErrorLines[0] ?? "", /Remote · 2 values/);
 
 	const expandedError = customTool.renderResult?.(
@@ -483,7 +483,7 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 	) as { render(width: number): string[] };
 	assert.equal(
 		expandedError.render(160).map((line) => line.trimEnd()).join("\n"),
-		"Remote content failure\nstack frame one\nstack frame two",
+		"  ⎿ Remote content failure\n    stack frame one\n    stack frame two",
 	);
 
 	await customTool.execute("call-custom", args);
@@ -528,7 +528,7 @@ test("cooperative result presentations share preview rows and skip duplicated ra
 		{},
 	) as { render(width: number): string[] };
 	const rendered = component.render(160).map((line) => line.trimEnd()).join("\n");
-	assert.equal(rendered, "↳ Remote · 2 values\nalpha\nbeta");
+	assert.equal(rendered, "  ⎿ Remote · 2 values\n    alpha\n    beta");
 	assert.doesNotMatch(rendered, /duplicate/);
 });
 
@@ -538,10 +538,6 @@ test("aggregate keeps built-in definitions intact without displaySummary schemas
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		toolCallLayout: "aggregate" as const,
 		toolCallStyle: "compact" as const,
-		toolIntent: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
-			enabled: true,
-		},
 	};
 	registerToolDisplayOverrides(api, () => config);
 
@@ -552,6 +548,12 @@ test("aggregate keeps built-in definitions intact without displaySummary schemas
 	for (const tool of registeredTools) {
 		const schema = tool.parameters as { properties?: Record<string, unknown>; required?: string[] };
 		assert.notEqual(tool.renderShell, "self", `${tool.name} keeps its individual renderer shell for reload recovery`);
+		if (tool.name === "bash") {
+			assert.ok(schema.properties?.displaySummary, "aggregate bash asks for displaySummary");
+			assert.equal(schema.required?.includes("displaySummary"), true);
+			assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)), true);
+			continue;
+		}
 		assert.equal(schema.properties?.displaySummary, undefined, `${tool.name} omits displaySummary`);
 		assert.equal(schema.required?.includes("displaySummary") ?? false, false);
 		assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)) ?? false, false);
@@ -663,16 +665,47 @@ test("aggregate respects passthrough and external ownership boundaries", () => {
 	restoreAggregateToolExecutions();
 });
 
-test("tool intent can be disabled without changing built-in execution schemas", () => {
-	const { api, registeredTools } = createExtensionApiStub();
+test("aggregate decorateTool keeps call presentation for the Run ledger", () => {
 	const config = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolIntent: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
-			enabled: false,
-		},
+		toolCallLayout: "aggregate" as const,
 	};
+	const { api } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
+	try {
+		const customTool = decorateToolForDisplay(
+			{
+				name: "web_search",
+				description: "Search the web",
+				parameters: { type: "object", properties: { query: { type: "string" } } },
+				execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+				renderCall: () => ({ render: () => ["ORIGINAL SEARCH CALL"] }),
+			},
+			{
+				getCallPresentation(args: unknown) {
+					const query = (args as { query?: unknown }).query;
+					return typeof query === "string" ? { target: query } : undefined;
+				},
+			},
+		);
+		assert.equal(
+			formatAggregateTarget({ toolName: "web_search", args: { query: "prod metrics" } }),
+			"web_search(prod metrics)",
+		);
+		const call = customTool.renderCall?.({ query: "prod metrics" }, { fg: (_c: string, t: string) => t, bold: (t: string) => t });
+		assert.deepEqual(
+			(call as { render(width: number): string[] }).render(80),
+			["ORIGINAL SEARCH CALL"],
+		);
+	} finally {
+		setAggregateCallPresentationLookup(undefined);
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("non-bash built-ins omit displaySummary schemas", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 
 	const read = registeredTools.find((tool) => tool.name === "read");
 	const schema = read?.parameters as { properties: Record<string, unknown>; required?: string[] };
@@ -680,14 +713,14 @@ test("tool intent can be disabled without changing built-in execution schemas", 
 	assert.equal(schema.required?.includes("displaySummary") ?? false, false);
 });
 
-test("registerToolDisplayOverrides forces edit into the default render shell so tool backgrounds fill the full row", async () => {
+test("registerToolDisplayOverrides uses the Claude self render shell for edit", async () => {
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 	await eventHandlers.before_agent_start?.();
 
 	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	assert.equal(byName.get("edit")?.renderShell, "default");
+	assert.equal(byName.get("edit")?.renderShell, "self");
 });
 
 test("Claude style uses self-rendered tool headers, deterministic fallbacks, and indented results", () => {
