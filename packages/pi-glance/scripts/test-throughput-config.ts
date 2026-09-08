@@ -19,9 +19,8 @@ function precisionOf(config: unknown): ThroughputPrecision | undefined {
 
 const defaults = defaultConfig();
 
-assert.equal(defaults.version, 15, "working tree summary should advance CONFIG_VERSION to 15");
-assert.equal(normalizeConfig({ version: 0 }).version, 15, "old raw versions should normalize to schema version 15");
-assert.equal(normalizeConfig({ version: 999 }).version, 15, "future raw versions should normalize to current schema version 15");
+assert.equal(normalizeConfig({ version: 0 }).version, defaults.version, "old raw versions should normalize to the current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, defaults.version, "future raw versions should normalize to the current schema version");
 assert.equal(defaults.throughput.precision, THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue, "defaultConfig should use descriptor throughput precision default");
 assert.deepEqual((defaults as unknown as { throughput?: unknown }).throughput, { precision: THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue }, "defaultConfig should include throughput.precision=auto");
 
@@ -132,7 +131,7 @@ assertSegments(
 );
 
 const encoded = configToText(normalizeConfig({ throughput: { precision: 0 } }));
-assert.equal(JSON.parse(encoded).version, 15, "configToText should serialize schema version 15");
+assert.equal(JSON.parse(encoded).version, defaults.version, "configToText should serialize the current schema version");
 assert.deepEqual(JSON.parse(encoded).throughput, { precision: 0 }, "configToText should serialize throughput precision");
 assert.deepEqual(configFromText(encoded), normalizeConfig({ throughput: { precision: 0 } }), "current schema config text should round-trip through configFromText/configToText");
 

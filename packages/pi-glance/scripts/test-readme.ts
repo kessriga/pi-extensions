@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 import { defaultConfig, normalizeConfig } from "../config.js";
 import { GLANCE_THEMES } from "../themes.js";
 
-const readme = await readFile("README.md", "utf8");
-const readmeZh = await readFile("README.zh-CN.md", "utf8");
+const readme = (await readFile("README.md", "utf8")).replace(/\s+/g, " ");
+const readmeZh = (await readFile("README.zh-CN.md", "utf8")).replace(/\s+/g, " ");
 const upstreamSource = await readFile("UPSTREAM_SOURCE.md", "utf8");
 
 function assertReadmeIncludes(fragment: string, message: string): void {
@@ -18,7 +18,14 @@ function assertReadmeExcludes(fragment: string, message: string): void {
 assertReadmeIncludes("maintained fork", "README should identify this package as a maintained fork");
 assertReadmeIncludes("./assets/demo.png", "README should use the local Glance demo screenshot");
 assertReadmeExcludes("LinYS77/pi-glance/main/assets/demo.gif", "README should not keep the upstream demo gif as the user-facing screenshot");
-assertReadmeIncludes("pi install npm:@zhcsyncer/pi-glance", "README should install the scoped fork package");
+assertReadmeIncludes("pi install git:github.com/kessriga/pi-extensions@dist/glance", "README should install the Glance-only fork");
+assertReadmeIncludes("`Border shape`", "README should document the border shape setting");
+assertReadmeIncludes("1 / 2 / 3 / 4", "README should document the one-row minimum");
+assertReadmeIncludes("npm:@narumitw/pi-usage", "README should name the separate subscription usage provider");
+assertReadmeIncludes("25% or less", "README should document the low-quota threshold");
+assertReadmeIncludes("10% or less", "README should document the critical-quota threshold");
+assert.ok(readmeZh.includes("`Border shape`") && readmeZh.includes("1 / 2 / 3 / 4"), "Chinese README should document both layout settings");
+assert.ok(readmeZh.includes("npm:@narumitw/pi-usage") && readmeZh.includes("25%") && readmeZh.includes("10%"), "Chinese README should document footer usage and color thresholds");
 assertReadmeIncludes("Pi 0.80.4 or newer", "README should document the agent_settled-compatible Pi baseline");
 assertReadmeIncludes("Other extensions' `ctx.ui.setStatus()` values remain visible", "README should document preserved extension statuses");
 assertReadmeIncludes("`status` or `border right`", "README should document the two Working Tree placements");
@@ -51,7 +58,7 @@ assert.equal("footer" in defaultConfig(), false, "README footer behavior should 
 assert.deepEqual(defaultConfig().bottomDetails, { showAutoCompact: true }, "README bottom-details JSON should stay aligned with defaultConfig");
 assert.deepEqual(defaultConfig().context, { text: "percent+tokens", progress: false, progressStyle: "border", progressWidth: "third" }, "README context progress defaults should stay aligned with defaultConfig");
 assert.equal(defaultConfig().git.worktreeSummary, "status", "README Working Tree default should stay aligned with defaultConfig");
-assert.ok(readmeZh.includes("pi install npm:@zhcsyncer/pi-glance"), "Chinese README should document scoped install");
+assert.ok(readmeZh.includes("pi install git:github.com/kessriga/pi-extensions@dist/glance"), "Chinese README should document the Glance-only fork install");
 assert.ok(readmeZh.includes("./assets/demo.png"), "Chinese README should use the local Glance demo screenshot");
 assert.ok(readmeZh.includes("`Progress bar`"), "Chinese README should document context progress mode");
 assert.ok(readmeZh.includes("未用部分细线 `─`，已用部分粗线 `━`"), "Chinese README should document border progress glyphs");

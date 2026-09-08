@@ -8,6 +8,7 @@ import {
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
 	CONTEXT_TEXT_MODE_VALUES,
+	EDITOR_BORDER_SHAPE_VALUES,
 	GIT_SHA_MODE_VALUES,
 	ICON_MODE_VALUES,
 	MODEL_THINKING_MODE_VALUES,
@@ -25,6 +26,7 @@ import type {
 	ContextProgressWidth,
 	ContextTextMode,
 	ColorSource,
+	EditorBorderShape,
 	EditorTopMarginRows,
 	GitShaMode,
 	GlanceConfig,
@@ -40,7 +42,7 @@ import type {
 } from "./types.js";
 
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
-const CONFIG_VERSION = 15 as const;
+const CONFIG_VERSION = 16 as const;
 const emittedMigrationNotices = new Set<string>();
 const pendingMigrationNotices: string[] = [];
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -65,6 +67,7 @@ function queueMigrationNotice(message: string): void {
 
 const COLOR_SOURCES = new Set<ColorSource>(COLOR_SOURCE_VALUES);
 const ICON_MODES = new Set<IconMode>(ICON_MODE_VALUES);
+const EDITOR_BORDER_SHAPES = new Set<EditorBorderShape>(EDITOR_BORDER_SHAPE_VALUES);
 const PROVIDER_MODES = new Set<GlanceConfig["display"]["showProvider"]>(PROVIDER_DISPLAY_MODE_VALUES);
 const WORKSPACE_LABEL_MODES = new Set<WorkspaceLabelMode>(WORKSPACE_LABEL_MODE_VALUES);
 const GIT_SHA_MODES = new Set<GitShaMode>(GIT_SHA_MODE_VALUES);
@@ -87,6 +90,7 @@ export function defaultConfig(): GlanceConfig {
 		theme: { light: "light", dark: "dark" },
 		icons: "plain",
 		editor: {
+			borderShape: "rounded",
 			minContentRows: 3,
 			topMarginRows: 1,
 		},
@@ -264,7 +268,7 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 	if (!raw || typeof raw !== "object") return defaults;
 	const record = raw as Record<string, unknown>;
 	const rawVersion = typeof record.version === "number" && Number.isFinite(record.version) ? Math.floor(record.version) : undefined;
-	const usesLegacyGlanceColorDefault = rawVersion !== undefined && rawVersion < CONFIG_VERSION;
+	const usesLegacyGlanceColorDefault = rawVersion !== undefined && rawVersion < 15;
 	const workingIndicator = record.workingIndicator && typeof record.workingIndicator === "object" ? (record.workingIndicator as Record<string, unknown>) : {};
 	const editor = record.editor && typeof record.editor === "object" ? (record.editor as Record<string, unknown>) : {};
 	const display = record.display && typeof record.display === "object" ? (record.display as Record<string, unknown>) : {};
@@ -286,7 +290,8 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 		theme: parseThemePair(record.theme, defaults.theme),
 		icons: parseStringEnum(record.icons, ICON_MODES, defaults.icons),
 		editor: {
-			minContentRows: parseIntInRange(editor.minContentRows, defaults.editor.minContentRows, 2, 4),
+			borderShape: parseStringEnum(editor.borderShape, EDITOR_BORDER_SHAPES, defaults.editor.borderShape),
+			minContentRows: parseIntInRange(editor.minContentRows, defaults.editor.minContentRows, 1, 4),
 			topMarginRows: parseIntInRange(editor.topMarginRows, defaults.editor.topMarginRows, 0, 2) as EditorTopMarginRows,
 		},
 		display: {
@@ -344,7 +349,7 @@ const CONFIG_SHAPE: Record<string, ReadonlySet<string> | undefined> = {
 	"": new Set(["version", "enabled", "workingIndicator", "colorSource", "theme", "icons", "editor", "display", "segments", "model", "git", "context", "cost", "tokens", "throughput", "bottomDetails"]),
 	workingIndicator: new Set(["enabled"]),
 	theme: new Set(["light", "dark"]),
-	editor: new Set(["minContentRows", "topMarginRows"]),
+	editor: new Set(["borderShape", "minContentRows", "topMarginRows"]),
 	display: new Set(["showProvider", "workspaceLabel"]),
 	model: new Set(["customNames", "showThinking"]),
 	git: new Set(["showDirty", "showAheadBehind", "showBaseBehind", "shaMode", "worktreeSummary", "timeoutMs", "refreshDebounceMs", "pollIntervalMs"]),

@@ -2,14 +2,14 @@ import { strict as assert } from "node:assert";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { defaultConfig } from "../config.js";
 import { measureInputSurfaceFrame, renderInputSurfaceFrame } from "../input-surface-frame.js";
-import { renderInputSurface } from "../renderer.js";
+import { renderInputSurface, renderInputSurfacePreview } from "../renderer.js";
 import { renderSurfaceTopMargin, surfaceMetrics, SURFACE_AUTOCOMPLETE_INDENT, SURFACE_CONTENT_PADDING_X } from "../surface-layout.js";
 import { resolveBuiltInGlanceStyles, resolvePiThemeStyles, type ResolvedGlanceStyles } from "../theme-adapter.js";
 import { onlySegments, richInputSurfaceState as richState, stripAnsi } from "./surface-test-harness.js";
 import type { GlanceConfig } from "../types.js";
 
 function minRows(config: GlanceConfig): number {
-	return Math.max(2, Math.min(4, config.editor.minContentRows));
+	return Math.max(1, Math.min(4, config.editor.minContentRows));
 }
 
 function assertFrameGeometry(lines: readonly string[], config: GlanceConfig, width: number, bodyLineCount: number, label: string): void {
@@ -43,6 +43,45 @@ for (const width of [Number.NaN, -4, 0, 1, 4, 20, 80]) {
 		Math.min(SURFACE_AUTOCOMPLETE_INDENT, Math.max(0, measured.safeWidth - 1)),
 		`measure autocompleteIndent should expose current live editor autocomplete indent at width ${width}`,
 	);
+}
+
+for (const [borderShape, topLeft, topRight, bottomLeft, bottomRight] of [
+	["rounded", "╭", "╮", "╰", "╯"],
+	["rectangular", "┌", "┐", "└", "┘"],
+] as const) {
+	const config = defaultConfig();
+	config.editor = { borderShape, minContentRows: 1, topMarginRows: 0 };
+	config.context.progress = true;
+	const state = richState();
+	const styles = resolveBuiltInGlanceStyles(config.theme.light);
+	for (const progressStyle of ["border", "track"] as const) {
+		config.context.progressStyle = progressStyle;
+		for (const width of [0, 1, 2, 3, 4, 8, 24, 80]) {
+			for (const focused of [true, false]) {
+				const preview = renderInputSurfacePreview(config, width, { focused, contentLines: ["prompt"] });
+				const frame = renderInputSurfaceFrame({
+					state, config, width, styles,
+					body: { kind: "editor", lines: ["prompt"] },
+					chrome: { focus: focused ? "focused" : "unfocused", modeLabel: "Bash", stashOccupied: true },
+				});
+				for (const lines of [preview, frame]) {
+					assert.equal(lines.length, width === 0 ? 0 : 3, `${borderShape} ${progressStyle} frame should use one content row at width ${width}`);
+					for (const line of lines) assert.ok(visibleWidth(line) <= width, `${borderShape} line should fit width ${width}`);
+					if (width < 4) continue;
+					const top = stripAnsi(lines[0] ?? "");
+					const bottom = stripAnsi(lines.at(-1) ?? "");
+					assert.ok(top.startsWith(topLeft) && top.endsWith(topRight), `${borderShape} top corners should survive narrow widths`);
+					assert.ok(bottom.startsWith(bottomLeft) && bottom.endsWith(bottomRight), `${borderShape} bottom corners should survive progress rendering`);
+				}
+				if (width === 80) {
+					assert.ok(stripAnsi(frame[0] ?? "").includes("Bash · !"), `${borderShape} should retain the compact stash marker`);
+					if (progressStyle === "border") {
+						assert.ok(stripAnsi(frame.at(-1) ?? "").includes("━"), `${borderShape} should retain border progress cells`);
+					}
+				}
+			}
+		}
+	}
 }
 
 for (const theme of ["light", "dark", "high-contrast-light"] as const) {

@@ -1,5 +1,6 @@
 # Local Pi project/runtime files
 .pi/
+.worktrees/
 
 # Local notes not part of the package repo
 pi-onboarding-cases.md

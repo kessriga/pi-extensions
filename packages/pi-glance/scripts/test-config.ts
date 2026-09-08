@@ -3,6 +3,7 @@ import {
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
 	CONTEXT_TEXT_MODE_VALUES,
+	EDITOR_BORDER_SHAPE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	GIT_SHA_MODE_VALUES,
 	ICON_MODE_VALUES,
@@ -34,9 +35,11 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 15, "working tree summary should advance CONFIG_VERSION to 15");
-assert.equal(normalizeConfig({ version: 0 }).version, 15, "old raw version should normalize to current schema version");
-assert.equal(normalizeConfig({ version: 999 }).version, 15, "future raw version should normalize to current schema version");
+assert.equal(defaults.editor.borderShape, "rounded", "default editor corners should preserve the rounded frame");
+assert.equal(defaults.editor.minContentRows, 3, "default editor height should preserve three content rows");
+assert.equal(defaults.version, 16, "editor layout settings should advance CONFIG_VERSION to 16");
+assert.equal(normalizeConfig({ version: 0 }).version, 16, "old raw version should normalize to current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, 16, "future raw version should normalize to current schema version");
 assert.deepEqual(defaults.workingIndicator, { enabled: true }, "working indicator should default on for the complete experience");
 assert.equal(defaults.git.showBaseBehind, true, "behind-main marker should default on");
 assert.equal(normalizeConfig({ git: { showBaseBehind: false } }).git.showBaseBehind, false, "explicit behind-main off should be preserved");
@@ -51,6 +54,7 @@ assert.equal(normalizeConfig({ git: { worktreeSummary: "border-left" } }).git.wo
 assert.equal(normalizeConfig({ workingIndicator: { enabled: false } }).workingIndicator.enabled, false, "explicit working indicator off should be preserved");
 assert.equal(normalizeConfig({ workingIndicator: { enabled: "no" } }).workingIndicator.enabled, true, "invalid working indicator values should fall back on");
 assert.equal(defaults.colorSource, "pi", "new installs should follow Pi theme tokens by default");
+assert.equal(normalizeConfig({ version: 15 }).colorSource, "pi", "v15 configs should keep the Follow Pi default when migrating editor layout settings");
 assert.equal(normalizeConfig({ version: 10 }).colorSource, "glance", "v10 configs should preserve Glance palette behavior when colorSource is missing");
 assert.equal(normalizeConfig({ version: 12 }).colorSource, "glance", "v12 configs missing colorSource should preserve the established legacy Glance fallback while adding working indicator");
 assert.equal(normalizeConfig({ version: 10, colorSource: "pi" }).colorSource, "pi", "legacy configs should preserve an explicit new color source");
@@ -220,7 +224,7 @@ const userConfig = normalizeConfig({
 assert.deepEqual(
 	userConfig,
 	{
-		version: 15,
+		version: 16,
 		enabled: false,
 		workingIndicator: {
 			enabled: true,
@@ -229,6 +233,7 @@ assert.deepEqual(
 		theme: { light: "tokyo-night", dark: "tokyo-night" },
 		icons: "nerd",
 		editor: {
+			borderShape: "rounded",
 			minContentRows: 4,
 			topMarginRows: 2,
 		},
@@ -338,7 +343,23 @@ assert.equal((normalizeConfig({ throughput: { precision: "1" } }) as unknown as 
 assert.equal((normalizeConfig({ throughput: { precision: 2 } }) as unknown as { throughput: { precision: unknown } }).throughput.precision, "auto", "unknown throughput precision should fall back to default");
 assert.equal((normalizeConfig({ throughput: { precision: null } }) as unknown as { throughput: { precision: unknown } }).throughput.precision, "auto", "non-number/string throughput precision should fall back to default");
 
-assert.equal(normalizeConfig({ editor: { minContentRows: 1 } }).editor.minContentRows, 2, "minContentRows should clamp to minimum 2");
+for (const borderShape of EDITOR_BORDER_SHAPE_VALUES) {
+	for (const minContentRows of [1, 2, 3, 4]) {
+		const migrated = normalizeConfig({ version: 15, editor: { borderShape, minContentRows } });
+		assert.deepEqual(migrated.editor, { borderShape, minContentRows, topMarginRows: 1 }, "migration should preserve valid editor layout settings");
+		assert.deepEqual(configFromText(configToText(migrated)), migrated, "both border shapes and all row counts should round-trip");
+	}
+}
+for (const borderShape of [undefined, null, "", "square", "Rounded", 1, true, {}, []]) {
+	assert.equal(normalizeConfig({ editor: { borderShape } }).editor.borderShape, "rounded", `${String(borderShape)} border shape should fall back to rounded`);
+}
+for (const version of [0, 10, 14, 15]) {
+	assert.deepEqual(normalizeConfig({ version }).editor, defaults.editor, "old configs missing editor settings should gain rounded corners and the default height");
+	assert.equal(normalizeConfig({ version, editor: { minContentRows: 3 } }).editor.minContentRows, 3, "migration should preserve existing saved heights");
+}
+assert.equal(normalizeConfig({ editor: { minContentRows: 0 } }).editor.minContentRows, 1, "minContentRows should clamp to minimum 1");
+assert.equal(normalizeConfig({ editor: { minContentRows: -1 } }).editor.minContentRows, 1, "negative minContentRows should clamp to minimum 1");
+assert.equal(normalizeConfig({ editor: { minContentRows: 1.9 } }).editor.minContentRows, 1, "minContentRows should floor to one row");
 assert.equal(normalizeConfig({ editor: { minContentRows: 2.9 } }).editor.minContentRows, 2, "minContentRows should floor fractional values");
 assert.equal(normalizeConfig({ editor: { minContentRows: 3.9 } }).editor.minContentRows, 3, "minContentRows should floor before preserving in range");
 assert.equal(normalizeConfig({ editor: { minContentRows: 9 } }).editor.minContentRows, 4, "minContentRows should clamp to maximum 4");

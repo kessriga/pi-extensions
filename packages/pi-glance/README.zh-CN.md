@@ -6,9 +6,15 @@
 
 **为 [Pi](https://github.com/earendil-works/pi-mono) 提供安静、可组合的输入界面**
 
-用圆角多行编辑器替换默认输入框，在边框中展示 Git、费用、Reply speed、context、可选 tokens 和模型，同时不隐藏其他扩展发布的状态。
+用可配置的多行编辑器替换默认输入框，在边框中展示 Git、费用、Reply speed、context、可选 tokens
+和模型，同时不隐藏其他扩展发布的状态。
 
-本包是 [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3 的维护 fork，增加 StatusOnly Footer、Follow Pi 主题、右下角 context / 自动压缩详情，以及可开关的 Claude-inspired working indicator。上游 0.5.3 不包含 working indicator。
+本包是 [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3 的维护 fork，增加 StatusOnly Footer、Follow Pi
+主题、右下角 context / 自动压缩详情，以及可开关的 Claude-inspired working indicator。上游 0.5.3 不包含 working
+indicator。
+
+[kessriga fork](https://github.com/kessriga/pi-extensions)
+还增加了以圆点分隔、跟随主题的底部状态，可选圆角或直角边框，以及最小一行的输入高度。
 
 </div>
 
@@ -17,8 +23,11 @@
 ## 安装
 
 ```bash
-pi install npm:@zhcsyncer/pi-glance
+pi remove npm:@zhcsyncer/pi-glance
+pi install git:github.com/kessriga/pi-extensions@dist/glance
 ```
+
+此 Git 引用只包含 Glance，不要与其他 Glance 包同时加载。
 
 然后重启 Pi 或执行 `/reload`。
 
@@ -31,15 +40,18 @@ pi install npm:@zhcsyncer/pi-glance
 /diff
 ```
 
-`/glance` 打开设置和实时输入界面预览。`/diff` 把终端临时交给可选的 [`revdiff`](https://revdiff.com/) 审阅未提交 Working Tree；annotations 只回填编辑器供你确认，不会自动发送。缺少 revdiff 时，仅 `/diff` 显示安装提示。
+`/glance` 打开设置和实时输入界面预览。`/diff` 把终端临时交给可选的 [`revdiff`](https://revdiff.com/) 审阅未提交 Working
+Tree；annotations 只回填编辑器供你确认，不会自动发送。缺少 revdiff 时，仅 `/diff` 显示安装提示。
 
-`Ctrl+Shift+S` 收起或拿回当前输入框草稿。`Ctrl+Shift+U` 连按两次丢掉暂存。确认提示出现在输入框下方，带草稿开头，超时后消失。槽里还有未取回内容时，左边框会挂醒目的 `!stash`。同一会话 `/reload` 或 resume 后，若输入框是空的会自动倒回。
+`Ctrl+Shift+S` 收起或拿回当前输入框草稿。`Ctrl+Shift+U`
+连按两次丢掉暂存。确认提示出现在输入框下方，带草稿开头，超时后消失。槽里还有未取回内容时，左边框会挂醒目的
+`!stash`。同一会话 `/reload` 或 resume 后，若输入框是空的会自动倒回。
 
 ## 你会看到什么
 
 ![pi-glance demo](./assets/demo.png)
 
-- **圆角编辑器**：最小 2 / 3 / 4 行，顶部 0 / 1 / 2 行间距。
+- **编辑器**：可选圆角或直角边框，最小 1 / 2 / 3 / 4 行，顶部 0 / 1 / 2 行间距。
 - **工作区标题**：目录名，或安全的 `~/...` 路径。
 - **顶部状态**：Git、费用、Reply speed、context、可选 tokens、模型。
 - **Working Tree**：文件数和 tracked `+N −N`，在顶栏 Git 或底边右侧。
@@ -49,17 +61,36 @@ pi install npm:@zhcsyncer/pi-glance
 - **输入暂存**：`Ctrl+Shift+S` 收起/拿回，`Ctrl+Shift+U` 连按两次丢掉；边框用 `!stash` 提示未取回的草稿。
 - **Working indicator**：spinner、当前活动、本 cycle 输出和耗时。
 
-其他扩展的 `ctx.ui.setStatus()` 仍显示在输入框下方。Glance 不恢复 Pi 那两行信息 Footer。
+其他扩展的 `ctx.ui.setStatus()` 仍显示在输入框下方，各项用 ` · ` 分隔。Glance 不恢复 Pi 那两行信息 Footer。
+
+要显示 Codex 订阅额度，请另外安装 `npm:@narumitw/pi-usage`。使用它的 `/usage` 命令查看详情；Glance 会把额度状态显示在
+Memtrace 旁边：
+
+```text
+memtrace: connected · repo "Dotfiles" indexed · codex 88% ↻ 4d13h
+```
+
+提供商名称使用 Pi 主题的 accent 色。连接状态和 Codex 剩余额度使用当前 Pi 主题的 success、warning 和 error
+色。剩余额度不高于 25% 时使用 warning 色，不高于 10% 时使用 error 色。分隔符和重置倒计时使用 dim
+色。已有颜色的状态保持原样。
 
 ## 设置
 
 打开 `/glance`：
 
-- **General** — 新安装 `Color source` 为 `Follow Pi`。选 `Glance palette` 使用 22 套内置配色。当前 Pi 主题不可用时，用 `Light palette` / `Dark palette`。`Icons` 默认 `plain`；`nerd` 需要 Nerd Font。图标变成方框就改回 `plain`。`Workspace label` 为 `name`、`smart` 或 `path`。
+- **General** — `Border shape` 可选 `rounded`（默认圆角）或 `rectangular`（直角）。`Min input rows` 支持 1–4
+  行，已保存的高度保持不变。新安装 `Color source` 为 `Follow Pi`。选 `Glance palette` 使用 22 套内置配色。当前 Pi
+  主题不可用时，用 `Light palette` / `Dark palette`。`Icons` 默认 `plain`；`nerd` 需要 Nerd Font。图标变成方框就改回
+  `plain`。`Workspace label` 为 `name`、`smart` 或 `path`。
 - **Working indicator** — 一级菜单只有一个 `Enabled: on/off`。`off` 恢复 Pi 默认 working row。
-- **Git** — `Dirty marker`（文件计数可见时不亮灯，冲突保留）、`Ahead / behind`、`Behind main`、`SHA`、`Working tree`（`status` 或 `border right`）、`Polling`。
-- **Reply speed** — 默认开启。按 output tokens / wall time 显示：`?` 未知，`~42 tok/s` 临时，`42 tok/s` 最终。`Precision` 为 `auto`、1 位或 0 位。wall time 包含 tools、waiting、network 和 thinking，因此不是 benchmark。不发通知、不用 timer、不从文本估算 token。
-- **Context** — 百分比 / tokens 文本，可选右下角 `Progress bar`（`track` 或 `border`，`one third` 或 `remaining`）。未用部分细线 `─`，已用部分粗线 `━`。低于 70% 正常，70%（含）到 85%（不含）warning，85% 及以上 error。
+- **Git** —
+  `Dirty marker`（文件计数可见时不亮灯，冲突保留）、`Ahead / behind`、`Behind main`、`SHA`、`Working tree`（`status` 或
+  `border right`）、`Polling`。
+- **Reply speed** — 默认开启。按 output tokens / wall time 显示：`?` 未知，`~42 tok/s` 临时，`42 tok/s`
+  最终。`Precision` 为 `auto`、1 位或 0 位。wall time 包含 tools、waiting、network 和 thinking，因此不是
+  benchmark。不发通知、不用 timer、不从文本估算 token。
+- **Context** — 百分比 / tokens 文本，可选右下角 `Progress bar`（`track` 或 `border`，`one third` 或
+  `remaining`）。未用部分细线 `─`，已用部分粗线 `━`。低于 70% 正常，70%（含）到 85%（不含）warning，85% 及以上 error。
 - **Bottom details** — 可隐藏自动压缩标记。Nerd Font 显示 `󰁄 auto`。
 
 Git 保持安静：
@@ -76,10 +107,15 @@ Git 保持安静：
 
 **Fork 差异：** 由本包提供；上游 `pi-glance` 0.5.3 不包含该功能。
 
-高层 cycle 活跃时显示主题化 spinner、稳定动词、当前活动、本 cycle 输出和耗时（`47s`、`3m 08s`、`1h 07m`）。五分钟及以上耗时使用主题 warning 色。它不是 Anthropic 官方组件，也不改变 Agent、prompt、模型、工具、消息或 session 行为。
+高层 cycle 活跃时显示主题化 spinner、稳定动词、当前活动、本 cycle
+输出和耗时（`47s`、`3m 08s`、`1h 07m`）。五分钟及以上耗时使用主题 warning 色。它不是 Anthropic 官方组件，也不改变
+Agent、prompt、模型、工具、消息或 session 行为。
 
-Working row 是当前 cycle 的 output。顶边框 Tokens 是当前 session 累计 usage。Context 是 context window 占用。空 partial 保持隐藏，不显示 `↓ ~0 tokens`。
+Working row 是当前 cycle 的 output。顶边框 Tokens 是当前 session 累计 usage。Context 是 context window 占用。空 partial
+保持隐藏，不显示 `↓ ~0 tokens`。
 
 ## 许可证
 
-MIT。原始 `pi-glance` 版权 © 2026 linys77。见 [UPSTREAM_SOURCE.md](./UPSTREAM_SOURCE.md)、[UPSTREAM_LICENSE](./UPSTREAM_LICENSE) 和 [UPSTREAM_README.md](./UPSTREAM_README.md)。
+MIT。原始 `pi-glance` 版权 © 2026 linys77。见
+[UPSTREAM_SOURCE.md](./UPSTREAM_SOURCE.md)、[UPSTREAM_LICENSE](./UPSTREAM_LICENSE) 和
+[UPSTREAM_README.md](./UPSTREAM_README.md)。

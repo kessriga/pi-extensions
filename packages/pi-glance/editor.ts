@@ -123,6 +123,7 @@ export class GlanceEditor extends CustomEditor {
 	}
 
 	render(width: number): string[] {
+		if (width <= 0) return [];
 		const config = this.getConfig();
 		if (!config.enabled) {
 			return super.render(width);
@@ -168,7 +169,7 @@ export class GlanceEditor extends CustomEditor {
 		});
 
 		for (const line of autocomplete) {
-			frame.push(indentAutocompleteLine(line, metrics.safeWidth, metrics.autocompleteIndent));
+			frame.push(indentAutocompleteLine(line, Math.min(width, metrics.safeWidth), metrics.autocompleteIndent));
 		}
 		return frame;
 	}

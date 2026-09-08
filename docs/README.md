@@ -1,6 +1,7 @@
 # 仓库内部方案
 
-这里只放代码、测试、git 恢复不了的东西：Why、产品意图、心智模型、约定红线、非显然外部事实。用户可见的安装与用法仍在各包 `README.md` / `README.zh-CN.md`。
+这里只放代码、测试、git 恢复不了的东西：Why、产品意图、心智模型、约定红线、非显然外部事实。用户可见的安装与用法仍在各包
+`README.md` / `README.zh-CN.md`。
 
 横切方案放根下；包或 provider 特有方案按目录切片。
 
@@ -10,6 +11,7 @@
 | [tui-design-system.md](./tui-design-system.md) | 参考 | Claude Code 风格 TUI 色板与 chrome |
 | [pi-glance/input-stash.md](./pi-glance/input-stash.md) | 已落地 | 输入框单槽暂存：快捷键、边框提示、按 session 覆盖写 |
 | [pi-glance/working-indicator.md](./pi-glance/working-indicator.md) | 已落地 | Glance working row 的显示边界与主题跟随 |
+| [pi-glance/fork-installation.md](./pi-glance/fork-installation.md) | fork 维护 | Glance 独立 Git 导出、Dotfiles 安装与验证边界 |
 | [pi-meter/extension.md](./pi-meter/extension.md) | 已落地 | 本地账本与订阅剩余两套账 |
 | [pi-meter/quota-status.md](./pi-meter/quota-status.md) | 已落地 | 底栏只画当前模型套餐；本地滚动/日历窗口 |
 | [pi-consult/extension.md](./pi-consult/extension.md) | 已落地 | 主会话侧路顾问：consult / watchdog / 可选双路；配置走 extension-data |
